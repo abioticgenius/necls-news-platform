@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cluster {{ cluster_id }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-3">
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="alert alert-info">
+    {% for category, message in messages %}
+    <div class="{{ category }}">{{ message }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}
+<h1>Cluster {{ cluster_id }}</h1>
+<a href="{{ url_for('index') }}" class="btn btn-secondary mb-3">Back to Clusters</a>{% if current_user.is_admin() %} <a href="{{ url_for('rejected_clusters') }}" class="btn btn-outline-secondary mb-3">Rejected Clusters</a>{% endif %}
+
+{% if is_rejected_no_summary %}
+<div class="alert alert-warning">
+  <h4>Rejected Cluster - No Summary Available</h4>
+  <p><strong>Status:</strong> {{ extra.filter_status }}</p>
+  {% if extra.rejection_reason %}
+  <p><strong>Rejection Reason:</strong> {{ extra.rejection_reason }}</p>
+  {% endif %}
+  {% if cluster_headline %}
+  <p><strong>Headline:</strong> {{ cluster_headline }}</p>
+  {% endif %}
+  {% if cluster_created_at %}
+  <p><strong>Created:</strong> {{ cluster_created_at }}</p>
+  {% endif %}
+  <p class="mb-0">This cluster was rejected and does not have a summary generation. Only source articles are available below.</p>
+</div>
+{% endif %}
+
+{% for s in summaries %}
+<div class="card mb-3">
+  <div class="card-header">Language: {{ s.language_id }}</div>
+  <div class="card-body">
+    <form method="post">
+      <fieldset {% if not current_user.can_save() %}disabled{% endif %}>
+      <input type="hidden" name="form_type" value="summary">
+      <input type="hidden" name="language_id" value="{{ s.language_id }}">
+      <div class="mb-2">
+        <label class="form-label">Mini Heading</label>
+        <input type="text" class="form-control" name="mini_headline" value="{{ s.mini_headline or '' }}">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Headline</label>
+        <input type="text" class="form-control" name="headline" value="{{ s.headline or '' }}">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Mini Summary</label>
+        <textarea name="mini_summary" class="form-control" rows="3">{{ s.mini_summary or '' }}</textarea>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Bullets</label>
+        <textarea name="bullets" class="form-control" rows="5">{% for b in s.bullets or [] %}{{ b }}\n{% endfor %}</textarea>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Audio Text</label>
+        <textarea name="audio_text" class="form-control" rows="3">{{ s.audio_text or '' }}</textarea>
+      </div>
+      {% if s.audio_url %}
+      <div class="mb-2">
+        <audio controls src="{{ s.audio_url }}"></audio>
+      </div>
+      {% endif %}
+      <div class="mb-2">
+        <label class="form-label">Quotes (JSON)</label>
+        <textarea name="quotes" class="form-control" rows="4">{{ s.quotes | tojson(indent=2) }}</textarea>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Facts (JSON)</label>
+        <textarea name="facts" class="form-control" rows="4">{{ s.facts | tojson(indent=2) }}</textarea>
+      </div>
+      {% if current_user.can_save() %}
+      <button type="submit" class="btn btn-primary">Save</button>
+      {% endif %}
+      </fieldset>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+
+<h4>Main Story Sources</h4>
+{% for src in sources %}
+<form method="post" class="mb-2">
+  <fieldset {% if not current_user.can_save() %}disabled{% endif %}>
+  <input type="hidden" name="form_type" value="source">
+  <input type="hidden" name="source_id" value="{{ src.id }}">
+  <div class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <input type="text" name="title" class="form-control" value="{{ src.title or '' }}" placeholder="Title">
+    </div>
+    <div class="col-md-4">
+      <input type="text" name="url" class="form-control" value="{{ src.url }}" placeholder="URL">
+    </div>
+    <div class="col-md-3">
+      <input type="text" name="article_date" class="form-control" value="{{ src.date_publish  }}">
+    </div>
+<!--    <div class="col-md-1">-->
+<!--      <button type="submit" class="btn btn-primary">Save</button>-->
+<!--    </div>-->
+  </div>
+  </fieldset>
+</form>
+{% endfor %}
+
+<h2>Looking Ahead &amp; Story So Far</h2>
+{% for art, info in artifacts.items() %}
+  <h3>{{ art.replace('_',' ').title() }}</h3>
+  {% for slide in info.slides %}
+  <div class="card mb-3">
+    <div class="card-header">Slide {{ slide.sequence }} ({{ slide.type }})</div>
+    <div class="card-body">
+      {% for loc in info.localized if loc.slide_id == slide.id %}
+      <form method="post" class="mb-3">
+        <fieldset {% if not current_user.can_save() %}disabled{% endif %}>
+        <input type="hidden" name="form_type" value="slide">
+        <input type="hidden" name="slide_id" value="{{ slide.id }}">
+        <input type="hidden" name="language_id" value="{{ loc.language_id }}">
+        <div class="mb-2">
+          <label class="form-label">Language: {{ loc.language_id }}</label>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Heading</label>
+          <input type="text" name="heading" class="form-control" value="{{ loc.heading or '' }}">
+        </div>
+        <div class="mb-2">
+          <input type="hidden" name="content_type" value="{{ loc.content_type }}">
+          <label class="form-label">Content ({{ loc.content_type }})</label>
+          <textarea name="content" class="form-control font-monospace" rows="4" spellcheck="false">{{ loc.content | tojson(indent=2) }}</textarea>
+        </div>
+        {% if current_user.can_save() %}
+        <button type="submit" class="btn btn-primary">Save</button>
+        {% endif %}
+        </fieldset>
+      </form>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <h3>Story Sources</h3>
+  {% for src in info.sources %}
+  <form method="post" class="mb-2">
+    <fieldset {% if not current_user.can_save() %}disabled{% endif %}>
+    <input type="hidden" name="form_type" value="source">
+    <input type="hidden" name="source_id" value="{{ src.id }}">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <input type="text" name="title" class="form-control" value="{{ src.title or '' }}" placeholder="Title">
+      </div>
+      <div class="col-md-4">
+        <input type="text" name="url" class="form-control" value="{{ src.url }}" placeholder="URL">
+      </div>
+      <div class="col-md-3">
+        <input type="text" name="article_date" class="form-control" value="{{ src.date_publish }}">
+      </div>
+<!--      <div class="col-md-1">-->
+<!--        <button type="submit" class="btn btn-primary">Save</button>-->
+<!--      </div>-->
+    </div>
+    </fieldset>
+  </form>
+  {% endfor %}
+
+{% endfor %}
+
+
+<h2>Extra</h2>
+<pre>{{ extra | tojson(indent=2) }}</pre>
+
+</body>
+</html>

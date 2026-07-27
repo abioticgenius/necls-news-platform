@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Clustering Iterations</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-3">
+<p class="text-end">Logged in as {{ current_user.username }} <a href="{{ url_for('change_password') }}">(change password)</a> <a href="{{ url_for('logout') }}">(logout)</a></p>
+{% if current_user.is_admin() %}
+<p>
+  <a href="{{ url_for('register') }}" class="btn btn-sm btn-success me-2">Create User</a>
+  <a href="{{ url_for('manage_users') }}" class="btn btn-sm btn-secondary me-2">Manage Users</a>
+  <a href="{{ url_for('rejected_clusters') }}" class="btn btn-sm btn-danger me-2">Rejected Clusters</a>
+  <a href="{{ url_for('get_articles') }}" class="btn btn-sm btn-info me-2">Articles Management</a>
+  <a href="{{ url_for('iterations_page') }}" class="btn btn-sm btn-outline-dark me-2">Iterations</a>
+</p>
+{% endif %}
+
+<h4 class="mb-3">Clustering Iterations</h4>
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Run #</th>
+      <th>Started At</th>
+      <th>Completed At</th>
+      <th>Duration</th>
+      <th>Clusters Processed</th>
+    </tr>
+  </thead>
+  <tbody id="iterations-tbody">
+    <tr><td colspan="5" class="text-center text-muted">Loading…</td></tr>
+  </tbody>
+</table>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+  function formatDuration(startedAt, completedAt) {
+    if (!startedAt || !completedAt) return '—';
+    const diff = Math.round((new Date(completedAt) - new Date(startedAt)) / 1000);
+    if (diff < 60) return diff + 's';
+    const m = Math.floor(diff / 60), s = diff % 60;
+    return m + 'm ' + s + 's';
+  }
+
+  function formatTs(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString();
+  }
+
+  $.getJSON('{{ url_for("iterations_data") }}', function(resp) {
+    const tbody = $('#iterations-tbody').empty();
+    if (!resp.data || resp.data.length === 0) {
+      tbody.append('<tr><td colspan="5" class="text-center text-muted">No iterations recorded yet.</td></tr>');
+      return;
+    }
+    resp.data.forEach(function(row) {
+      tbody.append(
+        '<tr>' +
+        '<td>' + row.run + '</td>' +
+        '<td>' + formatTs(row.started_at) + '</td>' +
+        '<td>' + formatTs(row.completed_at) + '</td>' +
+        '<td>' + formatDuration(row.started_at, row.completed_at) + '</td>' +
+        '<td>' + row.clusters_processed + '</td>' +
+        '</tr>'
+      );
+    });
+  });
+</script>
+</body>
+</html>

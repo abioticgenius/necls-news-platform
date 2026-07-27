@@ -1,0 +1,108 @@
+{
+      "sources": [
+        {
+          "name": "Reuters",
+          "reuters": ["/world/india/",
+            "/world/us/"],
+          "sitemaps": ["https://www.reuters.com/arc/outboundfeeds/news-sitemap/?outputType=xml",
+          "https://www.reuters.com/arc/outboundfeeds/news-sitemap/?outputType=xml&from=100",
+            "https://www.reuters.com/arc/outboundfeeds/news-sitemap/?outputType=xml&from=200",
+            "https://www.reuters.com/arc/outboundfeeds/news-sitemap/?outputType=xml&from=300"
+          ]
+        },
+        {
+          "name": "IANS",
+          "sitemaps" : [
+          "https://ianslive.in/sitemap.xml"]
+        },
+        {
+          "name": "BusinessStandards",
+          "rss": ["https://www.business-standard.com/rss/home_page_top_stories.rss",
+          "https://www.business-standard.com/rss/latest.rss",
+            "https://www.business-standard.com/rss/todays-paper.rss",
+            "https://www.business-standard.com/rss/markets-106.rss"
+          ]
+        },
+        {
+          "name": "HindustanTimes",
+          "sitemaps": ["https://www.hindustantimes.com/sitemap/news.xml"],
+          "rss": ["https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml",
+          "https://www.hindustantimes.com/feeds/rss/business/rssfeed.xml"]
+        },
+        {
+          "name": "EconomicTimes",
+          "sitemaps": ["https://economictimes.indiatimes.com/etstatic/sitemaps/et/news/sitemap-today.xml",
+            "https://economictimes.indiatimes.com/etstatic/sitemaps/et/news/sitemap-yesterday.xml",
+            "https://economictimes.indiatimes.com/etstatic/sitemaps/et/news/sitemap-24hours.xml"]
+        },
+        {
+          "name": "NDTV",
+          "sitemaps": ["https://www.ndtv.com/sitemap/google-news-sitemap"]
+        },
+        {
+          "name": "PrintNews",
+          "sitemaps": ["https://theprint.in/googlenews.xml"]
+        },
+        {
+          "name": "IndianExpress",
+          "sitemaps": ["https://indianexpress.com/news-sitemap.xml",
+            "https://indianexpress.com/sitemap/today.xml",
+            "https://indianexpress.com/sitemap/yesterday.xml"
+          ]
+        },
+        {"name": "Tribune",
+          "sitemaps" : ["https://www.tribuneindia.com/recent-sitemap.xml"]},
+        {
+          "name": "LiveMintG",
+          "rss": ["https://news.google.com/rss/search?q=site%3Alivemint.com%20when%3A1d&hl=en-IN&gl=IN&ceid=IN%3Aen"],
+          "sitemaps": ["https://www.livemint.com/sitemap/today.xml"]
+        },
+
+        {
+          "name": "PTINews",
+          "sitemaps": [ "https://www.ptinews.com/sitemaps/pti-sitemap-{date}.xml"]
+        },
+        {
+          "name": "TimesOfIndia",
+          "rss": ["https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
+          "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms",
+          "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms",
+            "https://timesofindia.indiatimes.com/rssfeeds_us/72258322.cms",
+            "https://timesofindia.indiatimes.com/rssfeeds/-2128672765.cms",
+            "https://timesofindia.indiatimes.com/rssfeeds/1898055.cms",
+            "https://timesofindia.indiatimes.com/rssfeeds/-2128833038.cms"
+          ],
+          "sitemaps": ["https://timesofindia.indiatimes.com/staticsitemap/toi/category/sports/sitemap-index.xml"]
+        },
+        {"name":  "TheHindu" ,
+          "rss": [  "https://www.thehindu.com/feeder/default.rss",
+            "https://www.thehindu.com/business/feeder/default.rss"],
+          "sitemaps" : ["https://www.thehindu.com/sitemap/update/all.xml"
+          ]
+        },
+        {
+          "name": "APNews",
+          "sitemaps" : ["https://apnews.com/news-sitemap-content.xml"]
+        },
+        {
+          "name": "ESPNIndia",
+          "rss": ["https://news.google.com/rss/search?q=site%3Aespn.in%20when%3A1d&hl=en-IN&gl=IN&ceid=IN%3Aen"],
+          "sitemaps": ["https://www.espn.in/googlenewssitemap"]
+        },
+        {
+          "name": "IndianExpressSports",
+          "rss": ["https://news.google.com/rss/search?q=site%3Aindianexpress.com%20sports%20when%3A1d&hl=en-IN&gl=IN&ceid=IN%3Aen"]
+        },
+        {
+          "name": "TheHinduSports",
+          "rss": ["https://www.thehindu.com/sport/feeder/default.rss",
+            "https://news.google.com/rss/search?q=site%3Athehindu.com%20sports%20when%3A1d&hl=en-IN&gl=IN&ceid=IN%3Aen"]
+        },
+        {
+          "name": "TimesOfIndiaSports",
+          "rss": ["https://timesofindia.indiatimes.com/rssfeeds/4719148.cms",
+            "https://news.google.com/rss/search?q=site%3Atimesofindia.indiatimes.com%20sports%20when%3A1d&hl=en-IN&gl=IN&ceid=IN%3Aen"],
+          "sitemaps": ["https://timesofindia.indiatimes.com/staticsitemap/toi/category/sports/sitemap-index.xml"]
+        }
+      ]
+    }

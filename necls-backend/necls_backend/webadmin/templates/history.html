@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% if view_type == 'admin' or view_type == 'reviewer' %}Approval history{% else %}Edit history{% endif %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    #viewModal .modal-body { max-height: 70vh; overflow-y: auto; }
+    #viewModal .change-detail-section { margin-bottom: 1rem; }
+    #viewModal pre.payload-preview { font-size: 0.85rem; white-space: pre-wrap; background: #f8f9fa; padding: 0.75rem; border-radius: 0.25rem; }
+  </style>
+</head>
+<body class="container py-3">
+<p class="text-end">Logged in as {{ current_user.username }} <a href="{{ url_for('change_password') }}">(change password)</a> <a href="{{ url_for('logout') }}">(logout)</a></p>
+<p><a href="{{ url_for('get_articles') }}" class="btn btn-secondary">Back to Articles</a></p>
+
+<h1>{% if view_type == 'admin' or view_type == 'reviewer' %}Approval history{% else %}Edit history{% endif %}</h1>
+
+{% if view_type == 'admin' or view_type == 'reviewer' %}
+<p class="text-muted">All edits and their approval status.</p>
+{% else %}
+<p class="text-muted">Your submissions and their approval status.</p>
+{% endif %}
+
+{% if not records %}
+<p class="text-muted">No records yet.</p>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-striped table-hover">
+    <thead>
+      <tr>
+        <th>When</th>
+        {% if view_type == 'admin' %}<th>Who</th>{% endif %}
+        {% if view_type == 'reviewer' %}<th>Submitted by</th>{% endif %}
+        <th>Article</th>
+        <th>Status</th>
+        {% if view_type != 'reviewer' %}<th>Reviewed by</th>{% endif %}
+        <th>Reviewed at</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr data-record-id="{{ r.id }}">
+        <td>{{ r.created_at[:19] if r.created_at else '-' }}</td>
+        {% if view_type == 'admin' %}<td>{{ r.created_by_username or '-' }}</td>{% endif %}
+        {% if view_type == 'reviewer' %}<td>{{ r.created_by_username or '-' }}</td>{% endif %}
+        <td>
+          <a href="{{ url_for('edit_article', event_id=r.target_event_id) }}">{{ r.target_title or '(no title)' }}</a>
+        </td>
+        <td>
+          {% if r.status == 'pending' %}
+          <span class="badge bg-warning text-dark">Pending</span>
+          {% elif r.status == 'approved' %}
+          <span class="badge bg-success">Approved</span>
+          {% elif r.status == 'rejected' %}
+          <span class="badge bg-danger">Rejected</span>
+          {% else %}
+          <span class="badge bg-secondary">{{ r.status }}</span>
+          {% endif %}
+        </td>
+        {% if view_type != 'reviewer' %}
+        <td>{{ r.reviewed_by_username or '-' }}</td>
+        {% endif %}
+        <td>{{ r.reviewed_at[:19] if r.reviewed_at else '-' }}</td>
+        <td><button type="button" class="btn btn-outline-primary btn-sm view-history-btn" data-id="{{ r.id }}">View</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- View change modal -->
+<div class="modal fade" id="viewModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Change details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="viewModalBody">
+        <p class="text-muted">Loading…</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function() {
+  function escapeHtml(s) {
+    if (s == null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(s);
+    return div.innerHTML;
+  }
+  function toDisplay(val) {
+    if (val == null) return '';
+    if (typeof val === 'object') return JSON.stringify(val, null, 2);
+    return String(val);
+  }
+  function truncate(str, maxLen) {
+    if (str == null) return '';
+    const s = String(str);
+    return s.length <= maxLen ? s : s.substring(0, maxLen) + '…';
+  }
+
+  function renderArticleUpdate(payload) {
+    const ld = payload.localized_data || [];
+    const src = payload.sources || [];
+    const ana = payload.analysis || [];
+    let html = '';
+    if (ld.length) {
+      html += '<div class="change-detail-section"><strong>Localized content</strong><ul class="mb-0">';
+      ld.forEach(function(l) {
+        const lang = l.language_id || '?';
+        const title = (l.title || '').substring(0, 80) + ((l.title || '').length > 80 ? '…' : '');
+        const contentLen = (l.content || '').length;
+        html += '<li>' + lang + ': title "' + escapeHtml(title) + '"; content length ' + contentLen + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    if (src.length) {
+      html += '<div class="change-detail-section"><strong>Sources</strong><ul class="mb-0">';
+      src.forEach(function(s) {
+        html += '<li>' + escapeHtml((s.title || s.source_url || '').substring(0, 100)) + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    if (ana.length) {
+      html += '<div class="change-detail-section"><strong>Analysis</strong> ' + ana.length + ' block(s)</div>';
+    }
+    return html || '<p class="text-muted">No data.</p>';
+  }
+
+  function renderTagsUpdate(payload) {
+    const tags = payload.tags || [];
+    if (!tags.length) return '<p class="text-muted">No tags.</p>';
+    let html = '<div class="change-detail-section"><strong>Tags</strong><ul class="mb-0">';
+    tags.forEach(function(t) {
+      const name = t.name || '(unnamed)';
+      const type = t.type || 'tag';
+      const weight = t.weight != null ? t.weight : 50;
+      const rels = t.relations || [];
+      const relStr = rels.length ? ' → ' + rels.map(function(r) { return (r.relation_type || '') + ':' + (r.linked_to_tag || r.linked_to_tag_name || ''); }).join(', ') : '';
+      html += '<li>' + escapeHtml(name) + ' <span class="badge bg-secondary">' + type + '</span> weight ' + weight + relStr + '</li>';
+    });
+    html += '</ul></div>';
+    return html;
+  }
+
+  function renderArticleChangesOnly(diff) {
+    if (!diff) return '<p class="text-muted">No changes.</p>';
+    let html = '';
+    (diff.localized_changes || []).forEach(function(l) {
+      const lang = (l.language_id || '?').toUpperCase();
+      const ch = l.changes || {};
+      html += '<div class="change-detail-section"><strong>' + escapeHtml(lang) + ' localized</strong><ul class="mb-0">';
+      ['title', 'content', 'audio', 'audio_full_story'].forEach(function(field) {
+        if (!ch[field]) return;
+        const oldVal = ch[field].old;
+        const newVal = ch[field].new;
+        const isLong = field === 'content';
+        html += '<li><strong>' + field + '</strong>: ';
+        if (isLong) {
+          html += '<div class="d-flex gap-3 mt-1"><div class="flex-grow-1"><small class="text-muted">Before:</small><pre class="payload-preview mb-1" style="max-height: 200px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(oldVal)) + '</pre></div>';
+          html += '<div class="flex-grow-1"><small class="text-success">After:</small><pre class="payload-preview mb-1" style="max-height: 200px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(newVal)) + '</pre></div></div>';
+        } else {
+          html += '<del class="text-muted">' + escapeHtml(truncate(toDisplay(oldVal), 120)) + '</del> → ';
+          html += '<ins>' + escapeHtml(truncate(toDisplay(newVal), 120)) + '</ins>';
+        }
+        html += '</li>';
+      });
+      html += '</ul></div>';
+    });
+    (diff.sources_added || []).forEach(function(s) {
+      html += '<div class="change-detail-section"><strong>Sources added</strong><ul class="mb-0"><li>' + escapeHtml(s.title || s.source_url || '') + '</li></ul></div>';
+    });
+    (diff.sources_removed || []).forEach(function(s) {
+      html += '<div class="change-detail-section"><strong>Sources removed</strong><ul class="mb-0"><li>' + escapeHtml(s.title || s.source_url || '') + '</li></ul></div>';
+    });
+    (diff.analysis_changes || []).forEach(function(a) {
+      const contentTypeLabel = (a.changes && a.changes.content_type ? (a.changes.content_type.new || a.changes.content_type.old) : '') || 'analysis';
+      const friendlyType = contentTypeLabel.replace(/_/g, ' ');
+      html += '<div class="change-detail-section"><strong>' + escapeHtml(friendlyType) + ' (' + escapeHtml((a.language_id || '').toUpperCase()) + ')</strong>';
+      const ch = a.changes || {};
+      if (ch.content_type) {
+        html += '<p class="mb-1"><strong>Content type:</strong> <del class="text-muted">' + escapeHtml(toDisplay(ch.content_type.old)) + '</del> → <ins>' + escapeHtml(toDisplay(ch.content_type.new)) + '</ins></p>';
+      }
+      if (ch.content) {
+        html += '<p class="mb-1"><strong>Content:</strong></p>';
+        html += '<div class="d-flex gap-3"><div class="flex-grow-1"><small class="text-muted">Before:</small><pre class="payload-preview mb-1" style="max-height: 220px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(ch.content.old)) + '</pre></div>';
+        html += '<div class="flex-grow-1"><small class="text-success">After:</small><pre class="payload-preview mb-1" style="max-height: 220px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(ch.content.new)) + '</pre></div></div>';
+      }
+      html += '</div>';
+    });
+    (diff.so_far_changes || []).forEach(function(a) {
+      const contentTypeLabel = (a.changes && a.changes.content_type ? (a.changes.content_type.new || a.changes.content_type.old) : '') || 'story so far / concepts decoded';
+      const friendlyType = (contentTypeLabel.replace(/_/g, ' ').trim() || 'story so far / concepts decoded');
+      html += '<div class="change-detail-section"><strong>' + escapeHtml(friendlyType.charAt(0).toUpperCase() + friendlyType.slice(1)) + ' (' + escapeHtml((a.language_id || '').toUpperCase()) + ')</strong>';
+      const ch = a.changes || {};
+      if (ch.content_type) {
+        html += '<p class="mb-1"><strong>Content type:</strong> <del class="text-muted">' + escapeHtml(toDisplay(ch.content_type.old)) + '</del> → <ins>' + escapeHtml(toDisplay(ch.content_type.new)) + '</ins></p>';
+      }
+      if (ch.content) {
+        html += '<p class="mb-1"><strong>Content:</strong></p>';
+        html += '<div class="d-flex gap-3"><div class="flex-grow-1"><small class="text-muted">Before:</small><pre class="payload-preview mb-1" style="max-height: 220px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(ch.content.old)) + '</pre></div>';
+        html += '<div class="flex-grow-1"><small class="text-success">After:</small><pre class="payload-preview mb-1" style="max-height: 220px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(ch.content.new)) + '</pre></div></div>';
+      }
+      html += '</div>';
+    });
+    (diff.faqs_added || []).forEach(function(f) {
+      html += '<div class="change-detail-section"><strong class="text-success">FAQ added (' + escapeHtml((f.language_id || '').toUpperCase()) + ')</strong>';
+      html += '<p class="mb-1"><strong>Q:</strong> ' + escapeHtml(truncate(f.question, 200)) + '</p>';
+      if (f.answer) html += '<p class="mb-0"><strong>A:</strong> ' + escapeHtml(truncate(f.answer, 300)) + '</p>';
+      html += '</div>';
+    });
+    (diff.faqs_removed || []).forEach(function(f) {
+      html += '<div class="change-detail-section"><strong class="text-danger">FAQ removed (' + escapeHtml((f.language_id || '').toUpperCase()) + ')</strong>';
+      html += '<p class="mb-0">' + escapeHtml(truncate(f.question, 200)) + '</p></div>';
+    });
+    (diff.faqs_changes || []).forEach(function(f) {
+      html += '<div class="change-detail-section"><strong>FAQ changed (' + escapeHtml((f.language_id || '').toUpperCase()) + ')</strong>';
+      html += '<p class="mb-1">' + escapeHtml(truncate(f.question, 200)) + '</p>';
+      html += '<p class="mb-1"><strong>Answer:</strong></p>';
+      html += '<div class="d-flex gap-3"><div class="flex-grow-1"><small class="text-muted">Before:</small><pre class="payload-preview mb-1" style="max-height: 180px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(f.old_answer)) + '</pre></div>';
+      html += '<div class="flex-grow-1"><small class="text-success">After:</small><pre class="payload-preview mb-1" style="max-height: 180px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(f.new_answer)) + '</pre></div></div>';
+      html += '</div>';
+    });
+    return html || '<p class="text-muted">No changes.</p>';
+  }
+
+  function renderTagsChangesOnly(diff) {
+    if (!diff) return '<p class="text-muted">No changes.</p>';
+    let html = '';
+    (diff.added_tags || []).forEach(function(t) {
+      html += '<div class="change-detail-section"><strong>Tag added</strong> ' + escapeHtml(t.name) + ' <span class="badge bg-secondary">' + (t.type || 'tag') + '</span></div>';
+    });
+    (diff.removed_tags || []).forEach(function(t) {
+      html += '<div class="change-detail-section"><strong>Tag removed</strong> ' + escapeHtml(t.name) + '</div>';
+    });
+    (diff.weight_changes || []).forEach(function(t) {
+      html += '<div class="change-detail-section"><strong>Weight</strong> ' + escapeHtml(t.name) + ': ' + t.old_weight + ' → ' + t.new_weight + '</div>';
+    });
+    (diff.relation_added || []).forEach(function(r) {
+      html += '<div class="change-detail-section"><strong>Relation added</strong> ' + escapeHtml(r.tag_name) + ' → ' + escapeHtml(r.relation_type) + ':' + escapeHtml(r.linked_to_tag) + '</div>';
+    });
+    (diff.relation_removed || []).forEach(function(r) {
+      html += '<div class="change-detail-section"><strong>Relation removed</strong> ' + escapeHtml(r.tag_name) + ' → ' + escapeHtml(r.relation_type) + ':' + escapeHtml(r.linked_to_tag) + '</div>';
+    });
+    return html || '<p class="text-muted">No changes.</p>';
+  }
+
+  document.querySelectorAll('.view-history-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const id = this.getAttribute('data-id');
+      const body = document.getElementById('viewModalBody');
+      body.innerHTML = '<p class="text-muted">Loading…</p>';
+      const modal = new bootstrap.Modal(document.getElementById('viewModal'));
+      modal.show();
+      fetch('{{ url_for("history_detail", pk=0) }}'.replace('/0', '/' + id), { credentials: 'same-origin' })
+        .then(function(r) {
+          if (!r.ok) throw new Error(r.status === 403 ? 'Forbidden' : 'Not found');
+          return r.json();
+        })
+        .then(function(data) {
+          body.innerHTML = '<p><strong>By</strong> ' + escapeHtml(data.created_by_username || '') + ' <strong>at</strong> ' + (data.created_at || '') + '</p>';
+          body.innerHTML += '<p><strong>Article</strong> ' + escapeHtml(data.target_title || '(no title)') + '</p>';
+          body.innerHTML += '<p><strong>Status</strong> ' + (data.status || '') + '</p><hr>';
+          body.innerHTML += '<p><strong>What was changed</strong></p>';
+          var diffHtml = '';
+          if (data.change_type === 'article_update' && data.changes_only) {
+            diffHtml = renderArticleChangesOnly(data.changes_only);
+          } else if (data.change_type === 'article_tags_update' && data.changes_only) {
+            diffHtml = renderTagsChangesOnly(data.changes_only);
+          }
+          if (diffHtml) {
+            body.innerHTML += diffHtml;
+          } else {
+            body.innerHTML += '<p class="text-muted">' + escapeHtml(data.summary || '—') + '</p>';
+          }
+        })
+        .catch(function(e) {
+          body.innerHTML = '<p class="text-danger">' + escapeHtml(e.message || 'Could not load details.') + '</p>';
+        });
+    });
+  });
+})();
+</script>
+</body>
+</html>

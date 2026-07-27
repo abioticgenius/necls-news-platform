@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Clusters</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-3">
+<p class="text-end">Logged in as {{ current_user.username }} <a href="{{ url_for('change_password') }}">(change password)</a> <a href="{{ url_for('logout') }}">(logout)</a></p>
+{% if current_user.is_admin() %}
+<p>
+  <a href="{{ url_for('register') }}" class="btn btn-sm btn-success me-2">Create User</a>
+  <a href="{{ url_for('manage_users') }}" class="btn btn-sm btn-secondary me-2">Manage Users</a>
+  <a href="{{ url_for('rejected_clusters') }}" class="btn btn-sm btn-danger me-2">Rejected Clusters</a>
+  <a href="{{ url_for('get_articles') }}" class="btn btn-sm btn-info me-2">Articles Management</a>
+  <a href="{{ url_for('user_insights') }}" class="btn btn-sm btn-outline-primary me-2">User Insights</a>
+</p>
+{% endif %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <ul>
+    {% for category, message in messages %}
+    <li class="{{ category }}">{{ message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+{% endwith %}
+<form id="cluster-filters" method="get" class="row g-2 align-items-end">
+  <div class="col-auto">
+    <label class="form-label">Start</label>
+    <input type="date" class="form-control" name="start_date" value="{{ filters.start_date or '' }}">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">End</label>
+    <input type="date" class="form-control" name="end_date" value="{{ filters.end_date or '' }}">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Reviewed</label>
+    <select name="reviewed" class="form-select">
+      <option value="" {% if not filters.reviewed %}selected{% endif %}>All</option>
+      <option value="reviewed" {% if filters.reviewed=='reviewed' %}selected{% endif %}>Reviewed</option>
+      <option value="not_reviewed" {% if filters.reviewed=='not_reviewed' %}selected{% endif %}>Not Reviewed</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Category</label>
+    <input type="text" class="form-control" name="category" value="{{ filters.category or '' }}">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Approval Status</label>
+    <select name="approval_status" class="form-select">
+      <option value="" selected>All Statuses</option>
+      <option value="pending">Pending</option>
+      <option value="editorial_approved">Editorial Approved</option>
+      <option value="editorial_rejected">Editorial Rejected</option>
+      <option value="manual_approved">Manual Approved</option>
+      <option value="manual_rejected">Manual Rejected</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Search</label>
+    <input type="text" class="form-control" name="search">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Sort By</label>
+    <select name="sort_by" class="form-select">
+      <option value="last_gen" selected>Updated</option>
+      <option value="cluster_id">Cluster</option>
+      <option value="category">Category</option>
+      <option value="title">Title</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Order</label>
+    <select name="order" class="form-select">
+      <option value="desc" selected>Desc</option>
+      <option value="asc">Asc</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-primary">Apply</button>
+  </div>
+</form>
+<table id="clusters-table" class="table table-striped mt-3">
+  <thead>
+  <tr><th>Cluster</th><th>Category</th><th>Title</th><th>Updated</th><th>Approval Status</th><th>Synced</th><th>Reviewed</th><th>Actions</th></tr>
+  </thead>
+  <tbody></tbody>
+</table>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+  const canSave = {{ 'true' if current_user.can_save() else 'false' }};
+  const isAdmin = {{ 'true' if current_user.is_admin() else 'false' }};
+
+  function formatApprovalStatus(status) {
+    if (!status) return '<span class="badge bg-secondary">Unknown</span>';
+
+    const statusMap = {
+      'pending': '<span class="badge bg-warning">Pending</span>',
+      'editorial_approved': '<span class="badge bg-info">Editorial Approved</span>',
+      'editorial_rejected': '<span class="badge bg-danger">Editorial Rejected</span>',
+      'manual_approved': '<span class="badge bg-success">Manual Approved</span>',
+      'manual_rejected': '<span class="badge bg-dark">Manual Rejected</span>'
+    };
+
+    return statusMap[status] || `<span class="badge bg-secondary">${status}</span>`;
+  }
+
+  function loadClusters() {
+    const params = {
+      start_date: $('input[name=start_date]').val(),
+      end_date: $('input[name=end_date]').val(),
+      reviewed: $('select[name=reviewed]').val(),
+      category: $('input[name=category]').val(),
+      approval_status: $('select[name=approval_status]').val(),
+      search: $('input[name=search]').val(),
+      sort_by: $('select[name=sort_by]').val(),
+      order: $('select[name=order]').val(),
+      per_page: 50,
+      page: 1
+    };
+    $.getJSON('{{ url_for('clusters_data') }}', params, function(resp) {
+      const tbody = $('#clusters-table tbody').empty();
+      resp.data.forEach(function(row) {
+        let html = `<tr>`;
+        html += `<td>${row.cluster_id}</td>`;
+        html += `<td>${row.category || ''}</td>`;
+        html += `<td>${row.title || ''}</td>`;
+        html += `<td>${row.last_gen}</td>`;
+        html += `<td>${formatApprovalStatus(row.approval_status)}</td>`;
+        html += `<td>${row.synced ? 'Yes' : 'No'}</td>`;
+        html += `<td>${row.reviewed ? 'Yes' : 'No'}</td>`;
+        let actions = `<a href="${row.cluster_url}" class="btn btn-sm btn-outline-primary">${canSave ? 'Edit' : 'View'}</a>`;
+        if (isAdmin && row.sync_url) {
+          actions += ` <form method="post" action="${row.sync_url}" style="display:inline"><button type="submit" class="btn btn-sm btn-outline-secondary">Sync</button></form>`;
+        }
+        html += `<td>${actions}</td>`;
+        html += `</tr>`;
+        tbody.append(html);
+      });
+    });
+  }
+
+  $(document).ready(function() {
+    loadClusters();
+    $('#cluster-filters').on('submit', function(e) {
+      e.preventDefault();
+      loadClusters();
+    });
+  });
+</script>
+</body>
+</html>

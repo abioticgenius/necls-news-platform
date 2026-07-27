@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Edit Article</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-3">
+<p class="text-end">Logged in as {{ current_user.username }} <a href="{{ url_for('change_password') }}">(change password)</a> <a href="{{ url_for('logout') }}">(logout)</a></p>
+<p><button type="button" class="btn btn-secondary" onclick="history.back()">Back</button></p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <ul>
+    {% for category, message in messages %}
+    <li class="{{ category }}">{{ message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+{% endwith %}
+
+<h1 id="page-title">Edit Article</h1>
+
+<form id="article-form">
+  <input type="hidden" id="event-id" value="{{ event_id }}">
+
+  <!-- Event Details -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5>Event Details</h5>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Time Stamp</label>
+          <input type="datetime-local" id="time-stamp" class="form-control" readonly>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Article Type</label>
+          <input type="text" id="article-type" class="form-control" readonly>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image -->
+  <div class="card mb-4" id="image-card">
+    <div class="card-header">
+      <h5>Image</h5>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Image Path / URL</label>
+          <input type="text" id="event-image" class="form-control" placeholder="S3 path (e.g. necls-backend/images/...) or https://...">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Image Source URL</label>
+          <input type="url" id="event-image-source-url" class="form-control" placeholder="https://source-attribution.com/...">
+        </div>
+        <div class="col-12" id="image-preview-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Localized Content -->
+  <div id="localized-content">
+    <!-- Content will be loaded dynamically -->
+  </div>
+
+  <!-- Sources -->
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h5>Sources</h5>
+      <button type="button" id="add-source" class="btn btn-sm btn-outline-primary">Add Source</button>
+    </div>
+    <div class="card-body">
+      <div id="sources-list">
+        <!-- Sources will be loaded dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Audio Links -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5>Audio Links</h5>
+    </div>
+    <div class="card-body">
+      <div id="audio-links">
+        <!-- Audio links will be loaded dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Analysis Content -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5>Analysis Content</h5>
+    </div>
+    <div class="card-body">
+      <div id="analysis-content">
+        <!-- Analysis content will be loaded dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Story so far / Concepts decoded -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5>Story so far / Concepts decoded</h5>
+    </div>
+    <div class="card-body">
+      <div id="so-far-content">
+        <!-- Story so far content will be loaded dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- FAQs -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5>FAQs</h5>
+    </div>
+    <div class="card-body">
+      <!-- English FAQs -->
+      <div class="mb-4" id="faqs-en-block">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">English</h6>
+          <button type="button" id="add-faq-en-btn" class="btn btn-sm btn-outline-primary">Add FAQ</button>
+        </div>
+        <div id="faqs-en-list">
+          <p class="text-muted">No English FAQs yet.</p>
+        </div>
+      </div>
+      <!-- Hindi FAQs -->
+      <div id="faqs-hi-block">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">Hindi</h6>
+          <button type="button" id="add-faq-hi-btn" class="btn btn-sm btn-outline-primary">Add FAQ</button>
+        </div>
+        <div id="faqs-hi-list">
+          <p class="text-muted">No Hindi FAQs yet.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="mb-4" id="action-buttons">
+    <button type="submit" class="btn btn-primary">Save Changes</button>
+    <button type="button" id="cancel-btn" class="btn btn-secondary">Cancel</button>
+  </div>
+</form>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  const eventId = '{{ event_id }}';
+  const isViewOnly = {{ 'true' if (view_only|default(false) or request.args.get('view')) else 'false' }};
+  let articleData = {};
+
+  function loadArticle() {
+    $.getJSON(`{{ url_for('api_get_article', event_id='PLACEHOLDER') }}`.replace('PLACEHOLDER', eventId), function(data) {
+      articleData = data;
+      populateForm(data);
+
+      if (isViewOnly) {
+        $('#page-title').text('View Article');
+        $('#article-form input, #article-form textarea, #article-form select').prop('readonly', true);
+        $('#action-buttons').hide();
+        $('#add-source').hide();
+        $('#add-faq-en-btn, #add-faq-hi-btn').hide();
+        $('.remove-source').hide();
+        $('.remove-faq').hide();
+      } else {
+        // Enable editing for audio inputs
+        $('.audio-input').prop('readonly', false);
+      }
+    });
+  }
+
+  function populateForm(data) {
+    // Event details
+    $('#time-stamp').val(data.event.time_stamp ? new Date(data.event.time_stamp).toISOString().slice(0, 16) : '');
+    $('#article-type').val(data.event.article_type || '');
+
+    // Image
+    $('#event-image').val(data.event.image || '');
+    $('#event-image-source-url').val(data.event.image_source_url || '');
+    if (data.image_preview_url) {
+      $('#image-preview-container').html(
+        `<img src="${data.image_preview_url}" class="img-fluid rounded" style="max-height:200px;object-fit:contain;" onerror="this.replaceWith(document.createTextNode('(Preview unavailable)'))">`
+      );
+    } else if (data.event.image) {
+      $('#image-preview-container').html(`<small class="text-muted">Path stored (no preview available for this format)</small>`);
+    }
+    if (isViewOnly) {
+      $('#event-image, #event-image-source-url').prop('readonly', true);
+    }
+
+    // Localized content
+    populateLocalizedContent(data.localized_data);
+
+    // Audio links
+    populateAudioLinks(data.localized_data);
+
+    // Sources
+    populateSources(data.sources);
+
+    // Analysis content
+    populateAnalysis(data.analysis);
+
+    // Story so far / Concepts decoded
+    populateSoFar(data.so_far || []);
+
+    // FAQs
+    populateFAQs(data.faqs || []);
+  }
+
+  function populateLocalizedContent(localizedData) {
+    const container = $('#localized-content').empty();
+
+    localizedData.forEach(function(langData, index) {
+      const card = $(`
+        <div class="card mb-3">
+          <div class="card-header">
+            <h6>Language: ${langData.language_id.toUpperCase()}</h6>
+          </div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label">Title</label>
+              <input type="text" class="form-control localized-title" data-lang="${langData.language_id}" value="${langData.title || ''}">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Content</label>
+              <textarea class="form-control localized-content" data-lang="${langData.language_id}" rows="8" placeholder="Enter content (JSON or plain text)...">${(function() {
+                if (!langData.content) return '';
+                if (typeof langData.content === 'string') return langData.content;
+                if (Array.isArray(langData.content)) return langData.content.join('\\n');
+                return JSON.stringify(langData.content, null, 2);
+              })()}</textarea>
+            </div>
+          </div>
+        </div>
+      `);
+      container.append(card);
+    });
+  }
+
+  function populateSources(sources) {
+    const container = $('#sources-list').empty();
+
+    sources.forEach(function(source, index) {
+      const sourceDiv = $(`
+        <div class="source-item border rounded p-3 mb-2" data-index="${index}">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+              <label class="form-label">URL</label>
+              <input type="url" class="form-control source-url" value="${source.source_url}" required>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">Title</label>
+              <input type="text" class="form-control source-title" value="${source.title || ''}">
+            </div>
+            <div class="col-md-2">
+              <button type="button" class="btn btn-outline-danger remove-source w-100">Remove</button>
+            </div>
+          </div>
+        </div>
+      `);
+      container.append(sourceDiv);
+    });
+  }
+
+  function populateAudioLinks(localizedData) {
+    const container = $('#audio-links').empty();
+
+    // Find English and Hindi data
+    const enData = localizedData.find(d => d.language_id === 'en') || {};
+    const hiData = localizedData.find(d => d.language_id === 'hi') || {};
+
+    // Helper to get preview URL
+    function getPreviewUrl(audioPath, audioLinks, type) {
+      if (!audioPath) return null;
+      const link = audioLinks?.find(l => l.type === type);
+      return link ? link.url : null;
+    }
+
+    // Create editable audio fields for all 4 audio files
+    const enGistPreview = getPreviewUrl(enData.audio, enData.audio_links, 'gist');
+    const enFullPreview = getPreviewUrl(enData.audio_full_story, enData.audio_links, 'full');
+    const hiGistPreview = getPreviewUrl(hiData.audio, hiData.audio_links, 'gist');
+    const hiFullPreview = getPreviewUrl(hiData.audio_full_story, hiData.audio_links, 'full');
+
+    const audioCard = $(`
+      <div class="card mb-3">
+        <div class="card-header">
+          <h6>Audio Files (S3 Links)</h6>
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">English Gist Audio (S3 Path)</label>
+              <input type="text" class="form-control audio-input" data-lang="en" data-type="gist" 
+                     value="${enData.audio || ''}" 
+                     placeholder="e.g., necls-backend/audio/english-gist.mp3">
+              ${enGistPreview ? `<div class="mt-1"><small><a href="${enGistPreview}" target="_blank" class="text-primary">Preview Audio</a></small></div>` : ''}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">English Full Story Audio (S3 Path)</label>
+              <input type="text" class="form-control audio-input" data-lang="en" data-type="full" 
+                     value="${enData.audio_full_story || ''}" 
+                     placeholder="e.g., necls-backend/audio/english-full.mp3">
+              ${enFullPreview ? `<div class="mt-1"><small><a href="${enFullPreview}" target="_blank" class="text-primary">Preview Audio</a></small></div>` : ''}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Hindi Gist Audio (S3 Path)</label>
+              <input type="text" class="form-control audio-input" data-lang="hi" data-type="gist" 
+                     value="${hiData.audio || ''}" 
+                     placeholder="e.g., necls-backend/audio/hindi-gist.mp3">
+              ${hiGistPreview ? `<div class="mt-1"><small><a href="${hiGistPreview}" target="_blank" class="text-primary">Preview Audio</a></small></div>` : ''}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Hindi Full Story Audio (S3 Path)</label>
+              <input type="text" class="form-control audio-input" data-lang="hi" data-type="full" 
+                     value="${hiData.audio_full_story || ''}" 
+                     placeholder="e.g., necls-backend/audio/hindi-full.mp3">
+              ${hiFullPreview ? `<div class="mt-1"><small><a href="${hiFullPreview}" target="_blank" class="text-primary">Preview Audio</a></small></div>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+
+    container.append(audioCard);
+  }
+
+  function escapeForAttr(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function populateSoFar(soFar) {
+    const container = $('#so-far-content').empty();
+
+    if (soFar.length === 0) {
+      container.html('<p class="text-muted">No story so far / concepts decoded content available</p>');
+      return;
+    }
+
+    soFar.forEach(function(item) {
+      const contentValue = (function() {
+        if (item.content == null) return '';
+        if (typeof item.content === 'string') return item.content;
+        return JSON.stringify(item.content, null, 2);
+      })();
+      const typeLabel = (item.content_type || 'concepts decoded').replace(/_/g, ' ');
+      const card = $('<div class="card mb-3 so-far-item" data-so-far-id="' + escapeForAttr(item.id) + '" data-sequence="' + escapeForAttr(item.sequence) + '">' +
+        '<div class="card-header"><h6>' + escapeForAttr(typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)) + ' - ' + escapeForAttr((item.language_id || '').toUpperCase()) + '</h6></div>' +
+        '<div class="card-body">' +
+        '<div class="mb-3"><label class="form-label">Content Type</label>' +
+        '<input type="text" class="form-control so-far-content-type" data-so-far-id="' + escapeForAttr(item.id) + '" data-lang="' + escapeForAttr(item.language_id) + '" value="' + escapeForAttr(item.content_type || '') + '" ' + (isViewOnly ? 'readonly' : '') + '></div>' +
+        '<div class="mb-3"><label class="form-label">Content</label>' +
+        '<textarea class="form-control so-far-content" data-so-far-id="' + escapeForAttr(item.id) + '" data-lang="' + escapeForAttr(item.language_id) + '" rows="6" placeholder="Enter content (JSON or plain text)..." ' + (isViewOnly ? 'readonly' : '') + '>' + escapeForAttr(contentValue) + '</textarea></div>' +
+        '</div></div>');
+      container.append(card);
+    });
+  }
+
+  function appendFaqItem(container, lang, faq, isViewOnly) {
+    const q = escapeForAttr((faq && faq.question) || '');
+    const a = escapeForAttr((faq && faq.answer) || '');
+    const card = $('<div class="card mb-3 faq-item" data-faq-id="' + escapeForAttr((faq && faq.id) || '') + '" data-lang="' + lang + '">' +
+      '<div class="card-body">' +
+      '<div class="row g-2">' +
+      '<div class="col-md-10"><label class="form-label">Question</label><input type="text" class="form-control faq-question" value="' + q + '" placeholder="Question" ' + (isViewOnly ? 'readonly' : '') + '></div>' +
+      '<div class="col-md-2 align-self-end">' + (isViewOnly ? '' : '<button type="button" class="btn btn-outline-danger btn-sm remove-faq">Remove</button>') + '</div>' +
+      '<div class="col-12"><label class="form-label">Answer</label><textarea class="form-control faq-answer" rows="3" placeholder="Answer" ' + (isViewOnly ? 'readonly' : '') + '>' + a + '</textarea></div>' +
+      '</div></div></div>');
+    container.append(card);
+  }
+
+  function populateFAQs(faqs) {
+    const enList = $('#faqs-en-list').empty();
+    const hiList = $('#faqs-hi-list').empty();
+    const enFaqs = (faqs || []).filter(function(f) { return (f.language_id || 'en').toLowerCase() === 'en'; });
+    const hiFaqs = (faqs || []).filter(function(f) { return (f.language_id || 'en').toLowerCase() === 'hi'; });
+    if (enFaqs.length === 0) {
+      enList.html('<p class="text-muted">No English FAQs yet.</p>');
+    } else {
+      enFaqs.forEach(function(faq) { appendFaqItem(enList, 'en', faq, isViewOnly); });
+    }
+    if (hiFaqs.length === 0) {
+      hiList.html('<p class="text-muted">No Hindi FAQs yet.</p>');
+    } else {
+      hiFaqs.forEach(function(faq) { appendFaqItem(hiList, 'hi', faq, isViewOnly); });
+    }
+  }
+
+  function populateAnalysis(analysis) {
+    const container = $('#analysis-content').empty();
+
+    if (analysis.length === 0) {
+      container.html('<p class="text-muted">No analysis content available</p>');
+      return;
+    }
+
+    analysis.forEach(function(item, index) {
+      const contentValue = (function() {
+        if (!item.content) return '';
+        if (typeof item.content === 'string') return item.content;
+        // For arrays or objects, stringify to JSON
+        return JSON.stringify(item.content, null, 2);
+      })();
+      
+      const typeLabel = (item.content_type || '').replace(/_/g, ' ') || 'analysis';
+      const card = $(`
+        <div class="card mb-3 analysis-item" data-analysis-id="${item.id}" data-sequence="${item.sequence}">
+          <div class="card-header">
+            <h6>${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)} - ${item.language_id.toUpperCase()}</h6>
+          </div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label">Content Type</label>
+              <input type="text" class="form-control analysis-content-type" 
+                     data-analysis-id="${item.id}" 
+                     data-lang="${item.language_id}"
+                     value="${item.content_type || ''}" 
+                     ${isViewOnly ? 'readonly' : ''}>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Content</label>
+              <textarea class="form-control analysis-content" 
+                        data-analysis-id="${item.id}" 
+                        data-lang="${item.language_id}"
+                        rows="8" 
+                        placeholder="Enter analysis content (JSON or plain text)..."
+                        ${isViewOnly ? 'readonly' : ''}>${contentValue}</textarea>
+            </div>
+          </div>
+        </div>
+      `);
+      container.append(card);
+    });
+  }
+
+  $(document).ready(function() {
+    loadArticle();
+
+    $('#add-source').on('click', function() {
+      const container = $('#sources-list');
+      const index = container.children().length;
+      const sourceDiv = $(`
+        <div class="source-item border rounded p-3 mb-2" data-index="${index}">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-5">
+              <label class="form-label">URL</label>
+              <input type="url" class="form-control source-url" required>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">Title</label>
+              <input type="text" class="form-control source-title">
+            </div>
+            <div class="col-md-2">
+              <button type="button" class="btn btn-outline-danger remove-source w-100">Remove</button>
+            </div>
+          </div>
+        </div>
+      `);
+      container.append(sourceDiv);
+    });
+
+    $(document).on('click', '.remove-source', function() {
+      $(this).closest('.source-item').remove();
+    });
+
+    function addFaqToBlock(lang) {
+      const listId = lang === 'en' ? 'faqs-en-list' : 'faqs-hi-list';
+      const container = $('#' + listId);
+      container.find('p.text-muted').remove();
+      appendFaqItem(container, lang, null, false);
+    }
+
+    $('#add-faq-en-btn').on('click', function() { addFaqToBlock('en'); });
+    $('#add-faq-hi-btn').on('click', function() { addFaqToBlock('hi'); });
+
+    $(document).on('click', '.remove-faq', function() {
+      const item = $(this).closest('.faq-item');
+      const list = item.parent();
+      item.remove();
+      if (list.find('.faq-item').length === 0) {
+        const msg = list.attr('id') === 'faqs-en-list' ? 'No English FAQs yet.' : 'No Hindi FAQs yet.';
+        list.html('<p class="text-muted">' + msg + '</p>');
+      }
+    });
+
+    $('#article-form').on('submit', function(e) {
+      e.preventDefault();
+
+      // Collect localized data
+      const localizedData = [];
+      $('.localized-title').each(function() {
+        const lang = $(this).data('lang');
+        const contentText = $(`.localized-content[data-lang="${lang}"]`).val();
+        let content;
+        try {
+          // Try to parse as JSON first
+          content = JSON.parse(contentText);
+        } catch (e) {
+          // If not JSON, treat as plain text
+          content = contentText;
+        }
+        
+        // Get audio paths
+        const audioGist = $(`.audio-input[data-lang="${lang}"][data-type="gist"]`).val() || '';
+        const audioFull = $(`.audio-input[data-lang="${lang}"][data-type="full"]`).val() || '';
+        
+        localizedData.push({
+          language_id: lang,
+          title: $(this).val(),
+          content: content,
+          audio: audioGist,
+          audio_full_story: audioFull
+        });
+      });
+
+      // Collect sources
+      const sources = [];
+      $('.source-item').each(function() {
+        sources.push({
+          source_url: $(this).find('.source-url').val(),
+          title: $(this).find('.source-title').val()
+        });
+      });
+
+      // Collect analysis data
+      const analysisData = [];
+      $('.analysis-item').each(function() {
+        const analysisId = $(this).data('analysis-id');
+        const sequence = $(this).data('sequence');
+        const lang = $(this).find('.analysis-content').data('lang');
+        const contentText = $(this).find('.analysis-content').val();
+        const contentType = $(this).find('.analysis-content-type').val();
+        
+        let content;
+        try {
+          // Try to parse as JSON first
+          content = JSON.parse(contentText);
+        } catch (e) {
+          // If not JSON, treat as plain text
+          content = contentText;
+        }
+        
+        analysisData.push({
+          id: analysisId,
+          sequence: sequence,
+          language_id: lang,
+          content: content,
+          content_type: contentType
+        });
+      });
+
+      // Collect story so far / concepts decoded data
+      const soFarData = [];
+      $('.so-far-item').each(function() {
+        const soFarId = $(this).data('so-far-id');
+        const sequence = $(this).data('sequence');
+        const lang = $(this).find('.so-far-content').data('lang');
+        const contentText = $(this).find('.so-far-content').val();
+        const contentType = $(this).find('.so-far-content-type').val();
+        let content;
+        try {
+          content = JSON.parse(contentText);
+        } catch (e) {
+          content = contentText;
+        }
+        soFarData.push({
+          id: soFarId,
+          sequence: sequence,
+          language_id: lang || '',
+          content: content,
+          content_type: contentType || ''
+        });
+      });
+
+      // Collect FAQs (EN block first, then HI block; order = sequence)
+      const faqsData = [];
+      $('#faqs-en-list .faq-item, #faqs-hi-list .faq-item').each(function() {
+        const lang = $(this).data('lang') || 'en';
+        const question = $(this).find('.faq-question').val() || '';
+        const answer = $(this).find('.faq-answer').val() || '';
+        if (!question.trim()) return;
+        faqsData.push({ language_id: lang, question: question.trim(), answer: answer });
+      });
+
+      const imgVal = $('#event-image').val().trim();
+      const imgSrcVal = $('#event-image-source-url').val().trim();
+      const updateData = {
+        image: imgVal || null,
+        image_source_url: imgSrcVal || null,
+        localized_data: localizedData,
+        sources: sources,
+        analysis: analysisData,
+        so_far: soFarData,
+        faqs: faqsData
+      };
+
+      $.ajax({
+        url: `{{ url_for('api_update_article', event_id='PLACEHOLDER') }}`.replace('PLACEHOLDER', eventId),
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify(updateData),
+        success: function(resp) {
+          if (resp.success) {
+            alert(resp.pending_approval ? 'Changes submitted for approval' : 'Article updated successfully');
+            history.back();
+          } else {
+            alert('Error updating article: ' + resp.error);
+          }
+        },
+        error: function() {
+          alert('Error updating article');
+        }
+      });
+    });
+
+    $('#cancel-btn').on('click', function() {
+      history.back();
+    });
+  });
+</script>
+
+</body>
+</html>

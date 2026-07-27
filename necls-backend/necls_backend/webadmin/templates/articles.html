@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Articles Management</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-3">
+<p class="text-end">Logged in as {{ current_user.username }} <a href="{{ url_for('change_password') }}">(change password)</a> <a href="{{ url_for('logout') }}">(logout)</a></p>
+{% if current_user.is_admin() %}
+<p>
+  <a href="{{ url_for('register') }}" class="btn btn-success me-2">Create User</a>
+  <a href="{{ url_for('manage_users') }}" class="btn btn-secondary me-2">Manage Users</a>
+  <a href="{{ url_for('rejected_clusters') }}" class="btn btn-danger me-2">Rejected Clusters</a>
+  <a href="{{ url_for('manual_approved_history') }}" class="btn btn-success me-2">Manual Approval History</a>
+  <a href="{{ url_for('notifications_page') }}" class="btn btn-warning me-2">Notifications</a>
+  <a href="{{ url_for('user_insights') }}" class="btn btn-outline-primary me-2">User Insights</a>
+
+</p>
+{% endif %}
+{% if current_user.role in ['admin', 'reviewer'] %}
+<p><a href="{{ url_for('pending_changes_list') }}" class="btn btn-warning me-2">Pending approvals</a></p>
+{% endif %}
+{% if current_user.role in ['admin', 'editor', 'reviewer'] %}
+<p><a href="{{ url_for('history') }}" class="btn btn-outline-secondary me-2">{% if current_user.role == 'editor' %}Edit history{% else %}Approval history{% endif %}</a></p>
+{% endif %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <ul>
+    {% for category, message in messages %}
+    <li class="{{ category }}">{{ message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+{% endwith %}
+
+<h1>Synced Articles Management</h1>
+
+<!-- Filters -->
+<div class="row mb-3 g-2 align-items-end">
+  <div class="col-auto">
+    <label class="form-label">Start Date</label>
+    <input type="date" id="start-date" class="form-control">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">End Date</label>
+    <input type="date" id="end-date" class="form-control">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Category</label>
+    <input type="text" id="category-filter" class="form-control" placeholder="Filter by category">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Search</label>
+    <input type="text" id="search-input" class="form-control" placeholder="Search titles/descriptions">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Tag Name</label>
+    <input type="text" id="tag-name-filter" class="form-control" placeholder="Filter by tag name">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Tag Type</label>
+    <select id="tag-type-filter" class="form-select">
+      <option value="">All Types</option>
+      <option value="Category">Category</option>
+      <option value="Sub Category">Sub Category</option>
+      <option value="Core Event">Core Event</option>
+      <option value="Associated Event">Associated Event</option>
+      <option value="Entity">Entity</option>
+      <option value="Place">Place</option>
+      <option value="Impact">Impact</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button id="apply-filters" class="btn btn-primary">Apply Filters</button>
+    <button id="clear-filters" class="btn btn-secondary">Clear</button>
+  </div>
+</div>
+
+<table id="articles-table" class="table table-striped">
+  <thead>
+  <tr>
+    <th>Image</th>
+    <th>Title</th>
+    <th>Description</th>
+    <th>Category</th>
+    <th>Date</th>
+    <th>Content</th>
+    <th>FAQs</th>
+    <th>Actions</th>
+  </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+
+<!-- Tags Management Modal: fixed height, scrollable content -->
+<style>
+  #tagsModal .modal-dialog { max-width: 960px; height: 88vh; max-height: 720px; display: flex; flex-direction: column; margin: 1.75rem auto; }
+  #tagsModal .modal-content { height: 100%; display: flex; flex-direction: column; overflow: hidden; border-radius: 0.5rem; box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.1); }
+  #tagsModal .modal-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 1.25rem 1.5rem; }
+  #tagsModal .tags-modal-head { flex-shrink: 0; padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 2px solid #e9ecef; }
+  #tagsModal .tags-modal-head .lead { font-size: 0.95rem; color: #495057; font-weight: 400; margin-bottom: 0.5rem; }
+  #tagsModal .tags-modal-head .steps { font-size: 0.8rem; color: #6c757d; }
+  #tagsModal .tags-modal-scroll { flex: 1; overflow-y: auto; min-height: 0; padding-top: 0.25rem; }
+  #tagsModal .section-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #495057; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.35rem; }
+  #tagsModal .section-label .badge { font-size: 0.65rem; font-weight: 600; }
+  #tagsModal .core-tags-section { margin-bottom: 1.25rem; }
+  #tagsModal .core-tag-block { margin-bottom: 1rem; border: 1px solid #dee2e6; border-radius: 0.375rem; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  #tagsModal .core-tag-block .core-tag-row { padding: 0.85rem 1rem; background: linear-gradient(180deg, #f8f9fa 0%, #f1f3f5 100%); border-bottom: 1px solid #dee2e6; }
+  #tagsModal .core-tag-block .core-tag-row .form-label { font-size: 0.7rem; font-weight: 600; }
+  #tagsModal .core-tag-block .contextual-wrap { background: #fff; }
+  #tagsModal .core-tag-block .contextual-toggle-wrap { padding: 0.5rem 1rem; border-top: 1px solid #eee; }
+  #tagsModal .core-tag-block .contextual-toggle { font-size: 0.8rem; font-weight: 500; color: #495057; padding: 0.25rem 0.5rem; }
+  #tagsModal .core-tag-block .contextual-toggle:hover { color: #0d6efd; }
+  #tagsModal .core-tag-block .contextual-toggle[aria-expanded="true"] { color: #0d6efd; }
+  #tagsModal .contextual-under-core { padding: 0.75rem 1rem 1rem; }
+  #tagsModal .contextual-headings { font-size: 0.7rem; text-transform: uppercase; color: #6c757d; font-weight: 600; padding: 0.4rem 0; border-bottom: 1px solid #dee2e6; margin-bottom: 0.5rem; }
+  #tagsModal .contextual-tag-row { padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0; transition: background 0.15s; }
+  #tagsModal .contextual-tag-row:hover { background: #fafbfc; }
+  #tagsModal .contextual-tag-row:last-child { border-bottom: none; }
+  #tagsModal .unassigned-section { margin-top: 1rem; }
+  #tagsModal .unassigned-section .accordion-item { border-radius: 0.375rem; overflow: hidden; border: 1px solid #dee2e6; }
+  #tagsModal .unassigned-section .accordion-button { font-weight: 600; font-size: 0.9rem; padding: 0.75rem 1rem; background: #fff8e6; border: none; color: #856404; }
+  #tagsModal .unassigned-section .accordion-button:not(.collapsed) { background: #fff3cd; color: #856404; box-shadow: none; }
+  #tagsModal .unassigned-section .accordion-button::after { filter: none; }
+  #tagsModal .unassigned-section .accordion-body { padding: 1rem; background: #fff; }
+  #tagsModal #add-core-tag-btn { font-weight: 500; }
+  #tagsModal #add-unassigned-contextual-btn { font-weight: 500; }
+  #tagsModal .empty-hint { font-size: 0.8rem; color: #adb5bd; font-style: italic; padding: 0.75rem 0; }
+</style>
+<div class="modal fade" id="tagsModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header flex-shrink-0 border-bottom bg-light px-4 py-3">
+        <div>
+          <h5 class="modal-title mb-1">Manage Tags &amp; Relations</h5>
+          <p class="text-muted small mb-0" style="font-size: 0.8rem;">Organise core tags and link contextual tags to them.</p>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="tags-modal-head">
+          <p class="lead mb-1">How it works</p>
+          <p class="steps mb-0">Core tags are the main labels for the article. Contextual tags sit under a core tag (or in Unassigned until you link them). Use <strong>Linked to</strong> to connect a contextual tag to a core tag.</p>
+        </div>
+        <div class="tags-modal-scroll">
+          <div class="section-label core-tags-section">
+            <span class="badge bg-primary">Core tags</span>
+            Main labels for this article
+          </div>
+          <div id="core-tags-list" class="mb-2">
+          </div>
+          <button type="button" class="btn btn-outline-primary btn-sm mb-4" id="add-core-tag-btn">+ Add core tag</button>
+
+          <div class="section-label unassigned-section">
+            <span class="badge bg-warning text-dark">Unassigned</span>
+            Contextual tags not yet linked to a core tag
+          </div>
+          <div class="accordion mb-2" id="unassigned-accordion">
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#unassigned-contextual-collapse" id="unassigned-accordion-btn">
+                  <span id="unassigned-accordion-label">Unassigned contextual tags (0)</span>
+                </button>
+              </h2>
+              <div id="unassigned-contextual-collapse" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                  <p class="text-muted small mb-3">Tags here have no core tag link yet. Choose <strong>Linked to</strong> to assign them to a core tag above, or add new contextual tags and assign them.</p>
+                  <div id="unassigned-contextual-list"></div>
+                  <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="add-unassigned-contextual-btn">+ Add contextual tag</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer flex-shrink-0 border-top bg-light px-4 py-3">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="save-tags-btn">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Pagination -->
+<nav id="pagination-nav" class="mt-3" style="display: none;">
+  <ul class="pagination justify-content-center" id="pagination"></ul>
+</nav>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  let currentPage = 1;
+  const perPage = 25;
+  const isAdmin = {{ 'true' if current_user.is_admin() else 'false' }};
+  const canSave = {{ 'true' if current_user.can_save() else 'false' }};
+
+  function loadArticles(page = 1) {
+    currentPage = page;
+    const params = {
+      page: page,
+      per_page: perPage,
+      start_date: $('#start-date').val(),
+      end_date: $('#end-date').val(),
+      category: $('#category-filter').val(),
+      search: $('#search-input').val(),
+      tag_name: $('#tag-name-filter').val(),
+      tag_type: $('#tag-type-filter').val()
+    };
+
+    $.getJSON('{{ url_for('api_get_articles') }}', params, function(resp) {
+      const tbody = $('#articles-table tbody').empty();
+
+      resp.data.forEach(function(article) {
+        const formattedTags = article.formatted_tags || [];
+        const tagsHtml = formattedTags.map(tag =>
+          `<span class="badge bg-${tag.type === 'category' ? 'primary' : tag.type === 'topic' ? 'info' : 'secondary'} me-1">${tag.name} (${tag.weight})</span>`
+        ).join('');
+
+        const audioLinks = article.audio_links || [];
+        const audioHtml = audioLinks.map(link =>
+          `<a href="${link.url}" target="_blank" class="btn btn-sm btn-outline-success me-1">${link.label}</a>`
+        ).join('');
+
+        const imgPath = article.image || '';
+        let imageHtml;
+        if (imgPath) {
+          // Build a simple presigned-or-direct URL hint: show thumbnail if HTTP, else show icon
+          if (imgPath.startsWith('http://') || imgPath.startsWith('https://')) {
+            imageHtml = `<img src="${imgPath}" alt="img" style="max-height:40px;max-width:60px;object-fit:cover;" onerror="this.replaceWith(document.createTextNode('📷'))">`;
+          } else {
+            imageHtml = `<span title="${imgPath}">📷</span>`;
+          }
+        } else {
+          imageHtml = `<span class="text-muted">-</span>`;
+        }
+
+        let html = `<tr>`;
+        html += `<td>${imageHtml}</td>`;
+        html += `<td>${article.title || 'No Title'}</td>`;
+        html += `<td>${article.short_description || 'N/A'}</td>`;
+        html += `<td>${article.category_name || 'Uncategorized'}</td>`;
+        html += `<td>${article.formatted_date || 'N/A'}</td>`;
+        html += `<td>${article.has_content ? 'Has Content' : 'No Content'}</td>`;
+        html += `<td>${article.has_faqs ? `Has FAQs (${article.faq_count})` : 'No FAQs'}</td>`;
+        html += `<td>`;
+        html += `<button class="btn btn-sm btn-outline-primary me-1 view-article" data-event-id="${article.event_id}">View</button>`;
+        if (canSave) {
+          html += `<button class="btn btn-sm btn-outline-secondary me-1 edit-article" data-event-id="${article.event_id}">Edit</button>`;
+          html += `<button class="btn btn-sm btn-outline-info me-1 manage-tags" data-event-id="${article.event_id}">Tags</button>`;
+        }
+        if (isAdmin) {
+          html += `<button class="btn btn-sm btn-outline-danger delete-article" data-event-id="${article.event_id}">Delete</button>`;
+        }
+        html += `</td>`;
+        html += `</tr>`;
+
+        // Add tags / audio row
+        if (formattedTags.length > 0 || audioLinks.length > 0) {
+          html += `<tr class="table-light">`;
+          html += `<td colspan="6"><small class="text-muted">${formattedTags.length > 0 ? 'Tags: ' + tagsHtml : ''}</small></td>`;
+          html += `<td colspan="2"><small class="text-muted">${audioHtml}</small></td>`;
+          html += `</tr>`;
+        }
+
+        tbody.append(html);
+      });
+
+      if (resp.data && resp.data.length === 0) {
+        tbody.append('<tr><td colspan="8" class="text-center text-muted">No articles found</td></tr>');
+      }
+
+      updatePagination(resp.total, resp.page, resp.per_page);
+    }).fail(function(jqXHR, textStatus, errorThrown) {
+      const tbody = $('#articles-table tbody').empty();
+      tbody.append('<tr><td colspan="8" class="text-center text-danger">Error loading articles</td></tr>');
+    });
+  }
+
+  function updatePagination(total, currentPage, perPage) {
+    const totalPages = Math.ceil(total / perPage);
+    const pagination = $('#pagination').empty();
+
+    if (totalPages <= 1) {
+      $('#pagination-nav').hide();
+      return;
+    }
+
+    $('#pagination-nav').show();
+
+    // Previous button
+    if (currentPage > 1) {
+      pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="${currentPage - 1}">Previous</a></li>`);
+    }
+
+    // Page numbers
+    const startPage = Math.max(1, currentPage - 2);
+    const endPage = Math.min(totalPages, currentPage + 2);
+
+    if (startPage > 1) {
+      pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`);
+      if (startPage > 2) {
+        pagination.append(`<li class="page-item disabled"><span class="page-link">...</span></li>`);
+      }
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      const activeClass = i === currentPage ? ' active' : '';
+      pagination.append(`<li class="page-item${activeClass}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`);
+    }
+
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        pagination.append(`<li class="page-item disabled"><span class="page-link">...</span></li>`);
+      }
+      pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a></li>`);
+    }
+
+    // Next button
+    if (currentPage < totalPages) {
+      pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="${currentPage + 1}">Next</a></li>`);
+    }
+  }
+
+  const ARTICLES_STATE_KEY = 'articlesPageState';
+
+  function savePageState() {
+    const state = {
+      page: currentPage,
+      start_date: $('#start-date').val(),
+      end_date: $('#end-date').val(),
+      category: $('#category-filter').val(),
+      search: $('#search-input').val(),
+      tag_name: $('#tag-name-filter').val(),
+      tag_type: $('#tag-type-filter').val()
+    };
+    sessionStorage.setItem(ARTICLES_STATE_KEY, JSON.stringify(state));
+  }
+
+  function restorePageState() {
+    const raw = sessionStorage.getItem(ARTICLES_STATE_KEY);
+    if (!raw) return false;
+    sessionStorage.removeItem(ARTICLES_STATE_KEY);
+    try {
+      const state = JSON.parse(raw);
+      if (state.start_date) $('#start-date').val(state.start_date);
+      if (state.end_date) $('#end-date').val(state.end_date);
+      if (state.category) $('#category-filter').val(state.category);
+      if (state.search) $('#search-input').val(state.search);
+      if (state.tag_name) $('#tag-name-filter').val(state.tag_name);
+      if (state.tag_type) $('#tag-type-filter').val(state.tag_type);
+      loadArticles(state.page || 1);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  $(document).ready(function() {
+    if (!restorePageState()) {
+      loadArticles();
+    }
+
+    $('#apply-filters').on('click', function() {
+      loadArticles(1);
+    });
+
+    $('#clear-filters').on('click', function() {
+      $('#start-date, #end-date, #category-filter, #search-input, #tag-name-filter').val('');
+      $('#tag-type-filter').val('');
+      loadArticles(1);
+    });
+
+    $(document).on('click', '.page-link', function(e) {
+      e.preventDefault();
+      const page = $(this).data('page');
+      if (page) {
+        loadArticles(page);
+      }
+    });
+
+
+    $(document).on('click', '.view-article', function() {
+      const eventId = $(this).data('event-id');
+      savePageState();
+      window.location.href = `{{ url_for('edit_article', event_id='PLACEHOLDER') }}`.replace('PLACEHOLDER', eventId) + '?view=1';
+    });
+
+    $(document).on('click', '.edit-article', function() {
+      const eventId = $(this).data('event-id');
+      savePageState();
+      window.location.href = `{{ url_for('edit_article', event_id='PLACEHOLDER') }}`.replace('PLACEHOLDER', eventId);
+    });
+
+    $(document).on('click', '.delete-article', function() {
+      const eventId = $(this).data('event-id');
+      if (confirm('Are you sure you want to delete this article? This action cannot be undone.')) {
+        $.ajax({
+          url: `{{ url_for('api_delete_article', event_id='PLACEHOLDER') }}`.replace('PLACEHOLDER', eventId),
+          method: 'DELETE',
+          success: function(resp) {
+            if (resp.success) {
+              loadArticles(currentPage);
+            } else {
+              alert('Error deleting article: ' + resp.error);
+            }
+          },
+          error: function() {
+            alert('Error deleting article');
+          }
+        });
+      }
+    });
+
+    // Manage Tags functionality
+    let currentEventId = null;
+    const IMPACT_TAG_VALUES = ['Big Shift', 'Money', 'Career', 'Health', 'Lifestyle', 'Social'];
+
+    function showTagsLoading() {
+      $('#core-tags-list').html('<p class="text-muted small py-3">Loading tags…</p>');
+      $('#unassigned-contextual-list').empty();
+      $('#unassigned-accordion-label').text('Unassigned contextual tags (0)');
+    }
+
+    $(document).on('click', '.manage-tags', function() {
+      var eventId = $(this).data('event-id');
+      if (eventId == null || eventId === '') return;
+      eventId = String(eventId);
+      currentEventId = eventId;
+      showTagsLoading();
+      $('#tagsModal').modal('show');
+      loadTagsForArticle(eventId, function(tags) {
+        if (currentEventId !== eventId) return;
+        renderTags(Array.isArray(tags) ? tags : []);
+      });
+    });
+
+    function loadTagsForArticle(eventId, onLoaded) {
+      var url = `{{ url_for('api_get_article', event_id='PLACEHOLDER') }}`.replace('PLACEHOLDER', encodeURIComponent(String(eventId)));
+      $.getJSON(url)
+        .done(function(data) {
+          if (onLoaded) onLoaded(data && data.tags != null ? data.tags : []);
+        })
+        .fail(function(jqXHR) {
+          if (onLoaded && currentEventId === eventId) onLoaded([]);
+        });
+    }
+
+    function escapeHtml(s) {
+      if (s == null || s === undefined) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function relationTypeLabel(rt) {
+      const r = (rt || '').toLowerCase();
+      if (r === 'category') return 'Category';
+      if (r === 'subcategory') return 'Subcategory';
+      if (r === 'core_associated') return 'Core / Associated';
+      if (r === 'geo') return 'Geo';
+      return r || '—';
+    }
+
+    function buildLinkedToOptions(tags, currentIndex, selectedLinkedName) {
+      const otherTags = tags.filter(function(_, j) { return j !== currentIndex && tags[j].name; });
+      let opts = '<option value="">— None —</option>';
+      otherTags.forEach(function(t) {
+        const name = escapeHtml(t.name);
+        const type = escapeHtml(t.type);
+        const sel = (selectedLinkedName && t.name === selectedLinkedName) ? ' selected' : '';
+        opts += '<option value="' + name + '"' + sel + '>' + name + ' (' + type + ')</option>';
+      });
+      if (selectedLinkedName && !otherTags.some(function(t) { return t.name === selectedLinkedName; })) {
+        opts += '<option value="' + escapeHtml(selectedLinkedName) + '" selected>' + escapeHtml(selectedLinkedName) + ' (other)</option>';
+      }
+      return opts;
+    }
+
+    function buildLinkedToOptionsCoreFirst(coreTagNames, contextualTags, currentIndex, selectedLinkedName) {
+      const coreNames = coreTagNames || [];
+      const others = (contextualTags || []).filter(function(t, j) { return j !== currentIndex && t.name; });
+      let opts = '<option value="">— None —</option>';
+      if (coreNames.length) {
+        opts += '<optgroup label="Core tags">';
+        coreNames.forEach(function(name) {
+          const n = escapeHtml(name);
+          const sel = (selectedLinkedName && name === selectedLinkedName) ? ' selected' : '';
+          opts += '<option value="' + n + '"' + sel + '>' + n + '</option>';
+        });
+        opts += '</optgroup>';
+      }
+      if (others.length) {
+        opts += '<optgroup label="Other tags">';
+        others.forEach(function(t) {
+          const name = escapeHtml(t.name);
+          const type = escapeHtml(t.type);
+          const sel = (selectedLinkedName && t.name === selectedLinkedName) ? ' selected' : '';
+          opts += '<option value="' + name + '"' + sel + '>' + name + ' (' + type + ')</option>';
+        });
+        opts += '</optgroup>';
+      }
+      if (selectedLinkedName && coreNames.indexOf(selectedLinkedName) < 0 && !others.some(function(t) { return t.name === selectedLinkedName; })) {
+        opts += '<option value="' + escapeHtml(selectedLinkedName) + '" selected>' + escapeHtml(selectedLinkedName) + ' (other)</option>';
+      }
+      return opts;
+    }
+
+    function buildRelationTypeOptions(selectedType) {
+      const r = (selectedType || '').toLowerCase();
+      return '<option value="">— None —</option>' +
+        '<option value="category"' + (r === 'category' ? ' selected' : '') + '>Category</option>' +
+        '<option value="subcategory"' + (r === 'subcategory' ? ' selected' : '') + '>Subcategory</option>' +
+        '<option value="core_associated"' + (r === 'core_associated' ? ' selected' : '') + '>Core / Associated</option>' +
+        '<option value="geo"' + (r === 'geo' ? ' selected' : '') + '>Geo</option>';
+    }
+
+    function buildOneRelationRow(linkedToOptionsHtml, selectedLinked, selectedRelationType) {
+      return '<div class="tag-relation-row row g-2 align-items-end mb-2">' +
+        '<div class="col-5"><select class="form-select form-select-sm tag-linked-to">' + (linkedToOptionsHtml || '<option value="">— None —</option>') + '</select></div>' +
+        '<div class="col-4"><select class="form-select form-select-sm tag-relation-type">' + buildRelationTypeOptions(selectedRelationType) + '</select></div>' +
+        '<div class="col-auto"><button type="button" class="btn btn-outline-danger btn-sm remove-relation">Remove</button></div>' +
+        '</div>';
+    }
+
+    function getOtherTagOptionsFromDom($tagCard) {
+      const otherTags = [];
+      $('.tag-item').not($tagCard).each(function() {
+        const name = $(this).find('.tag-name').val().trim();
+        const type = $(this).find('.tag-type').val();
+        if (name) otherTags.push({ name: name, type: type });
+      });
+      let opts = '<option value="">— None —</option>';
+      otherTags.forEach(function(t) {
+        opts += '<option value="' + escapeHtml(t.name) + '">' + escapeHtml(t.name) + ' (' + escapeHtml(t.type) + ')</option>';
+      });
+      return opts;
+    }
+
+    function getCoreTagNamesFromDom() {
+      const names = [];
+      $('#core-tags-list .core-tag-block').each(function() {
+        const n = $(this).find('.core-tag-row .tag-name').val().trim();
+        if (n) names.push(n);
+      });
+      return names;
+    }
+
+    function buildLinkedToCoreOptions(coreNames, selectedName) {
+      selectedName = selectedName || '';
+      let html = '<option value="">— None —</option>';
+      (coreNames || []).forEach(function(name) {
+        const n = escapeHtml(name);
+        const sel = (selectedName && name === selectedName) ? ' selected' : '';
+        html += '<option value="' + n + '"' + sel + '>' + n + '</option>';
+      });
+      return html;
+    }
+
+    function buildTagNameControlHtml(type, name) {
+      const rawName = (name || '').toString().trim();
+      if (type === 'Impact') {
+        const normalizeImpact = function(v) {
+          return (v || '').toString().trim().toLowerCase().replace(/_/g, ' ');
+        };
+        const rawNorm = normalizeImpact(rawName);
+        const canonical = IMPACT_TAG_VALUES.find(function(v) { return normalizeImpact(v) === rawNorm; }) || '';
+        let opts = '<option value="">Select impact</option>';
+        IMPACT_TAG_VALUES.forEach(function(v) {
+          const sel = (canonical === v) ? ' selected' : '';
+          opts += '<option value="' + escapeHtml(v) + '"' + sel + '>' + escapeHtml(v) + '</option>';
+        });
+        if (!canonical && rawName) {
+          opts += '<option value="' + escapeHtml(rawName) + '" selected>' + escapeHtml(rawName) + '</option>';
+        }
+        return '<select class="form-select form-select-sm tag-name">' + opts + '</select>';
+      }
+      return '<input type="text" class="form-control form-control-sm tag-name" value="' + escapeHtml(rawName) + '" placeholder="Tag name">';
+    }
+
+    function syncTagNameControlByType($scope) {
+      const type = (($scope.find('.tag-type').val() || '') + '').trim();
+      const $name = $scope.find('.tag-name');
+      const currentVal = (($name.val() || '') + '').trim();
+      const currentIsSelect = $name.is('select');
+      const shouldBeSelect = (type === 'Impact');
+      if (currentIsSelect === shouldBeSelect) return;
+      $name.replaceWith(buildTagNameControlHtml(type, currentVal));
+    }
+
+    function buildContextualRowHtml(tag, linkedToSelected, coreNames, isUnderCore) {
+      const type = (tag.type && tag.type !== 'tag') ? tag.type : 'topic';
+      const weight = tag.weight != null ? tag.weight : 50;
+      const linkedOpts = buildLinkedToCoreOptions(coreNames, linkedToSelected);
+      const nameControl = buildTagNameControlHtml(type, tag.name || '');
+      const typeOpts = '<option value="Category"' + (type === 'Category' ? ' selected' : '') + '>Category</option>' +
+        '<option value="Sub Category"' + (type === 'Sub Category' ? ' selected' : '') + '>Sub Category</option>' +
+        '<option value="Core Event"' + (type === 'Core Event' ? ' selected' : '') + '>Core Event</option>' +
+        '<option value="Associated Event"' + (type === 'Associated Event' ? ' selected' : '') + '>Associated Event</option>' +
+        '<option value="Entity"' + (type === 'Entity' ? ' selected' : '') + '>Entity</option>' +
+        '<option value="Place"' + (type === 'Place' ? ' selected' : '') + '>Place</option>' +
+        '<option value="Impact"' + (type === 'Impact' ? ' selected' : '') + '>Impact</option>' +
+        '<option value="topic"' + (type === 'topic' ? ' selected' : '') + '>Topic</option>';
+      return '<div class="contextual-tag-row row g-2 align-items-end">' +
+        '<div class="col">' + nameControl + '</div>' +
+        '<div class="col"><select class="form-select form-select-sm tag-type">' + typeOpts + '</select></div>' +
+        '<div class="col"><input type="number" class="form-control form-control-sm tag-weight" value="' + weight + '" min="0" max="100"></div>' +
+        '<div class="col"><select class="form-select form-select-sm tag-linked-to">' + linkedOpts + '</select></div>' +
+        '<div class="col-auto"><button type="button" class="btn btn-outline-danger btn-sm remove-contextual-tag">Remove</button></div>' +
+        '</div>';
+    }
+
+    var contextualCollapseIdCounter = 0;
+    function nextContextualCollapseId() {
+      return 'contextual-collapse-' + (contextualCollapseIdCounter++);
+    }
+
+    var contextualHeadingsRow = '<div class="contextual-headings row g-2">' +
+      '<div class="col">Tag name</div>' +
+      '<div class="col">Type</div>' +
+      '<div class="col">Weight</div>' +
+      '<div class="col">Linked to</div>' +
+      '<div class="col-auto">Action</div>' +
+      '</div>';
+
+    function buildCoreTagBlock(coreTag, contextualTagsUnderThisCore, allCoreNames, collapseId) {
+      collapseId = collapseId || nextContextualCollapseId();
+      const coreName = coreTag.name || '';
+      const coreType = (coreTag.type && coreTag.type !== 'tag') ? coreTag.type : 'topic';
+      const coreWeight = coreTag.weight != null ? coreTag.weight : 50;
+      const coreNameControl = buildTagNameControlHtml(coreType, coreName);
+      const typeOpts = '<option value="Category"' + (coreType === 'Category' ? ' selected' : '') + '>Category</option>' +
+        '<option value="Sub Category"' + (coreType === 'Sub Category' ? ' selected' : '') + '>Sub Category</option>' +
+        '<option value="Core Event"' + (coreType === 'Core Event' ? ' selected' : '') + '>Core Event</option>' +
+        '<option value="Associated Event"' + (coreType === 'Associated Event' ? ' selected' : '') + '>Associated Event</option>' +
+        '<option value="Entity"' + (coreType === 'Entity' ? ' selected' : '') + '>Entity</option>' +
+        '<option value="Place"' + (coreType === 'Place' ? ' selected' : '') + '>Place</option>' +
+        '<option value="Impact"' + (coreType === 'Impact' ? ' selected' : '') + '>Impact</option>' +
+        '<option value="topic"' + (coreType === 'topic' ? ' selected' : '') + '>Topic</option>';
+      const n = (contextualTagsUnderThisCore || []).length;
+      let contextualHtml = '';
+      (contextualTagsUnderThisCore || []).forEach(function(t) {
+        contextualHtml += buildContextualRowHtml(t, coreName, allCoreNames, true);
+      });
+      const collapseShow = n > 0 ? ' show' : '';
+      return '<div class="core-tag-block">' +
+        '<div class="core-tag-row row g-2 align-items-end">' +
+        '<div class="col"><label class="form-label small text-uppercase text-muted">Name</label>' + coreNameControl + '</div>' +
+        '<div class="col"><label class="form-label small text-uppercase text-muted">Type</label><select class="form-select form-select-sm tag-type">' + typeOpts + '</select></div>' +
+        '<div class="col"><label class="form-label small text-uppercase text-muted">Weight</label><input type="number" class="form-control form-control-sm tag-weight" value="' + coreWeight + '" min="0" max="100"></div>' +
+        '<div class="col-auto align-self-end"><button type="button" class="btn btn-outline-danger btn-sm remove-core-tag">Remove</button></div>' +
+        '<div class="col-auto align-self-end"><button type="button" class="btn btn-outline-primary btn-sm add-contextual-under-core">+ Add contextual tag</button></div>' +
+        '</div>' +
+        '<div class="contextual-wrap">' +
+        '<div class="contextual-toggle-wrap">' +
+        '<button type="button" class="btn btn-link btn-sm p-0 contextual-toggle" data-bs-toggle="collapse" data-bs-target="#' + collapseId + '" aria-expanded="' + (n > 0) + '">' +
+        '<span class="contextual-toggle-text">Related contextual tags (' + n + ')</span></button>' +
+        '</div>' +
+        '<div class="collapse' + collapseShow + '" id="' + collapseId + '">' +
+        '<div class="contextual-under-core">' +
+        contextualHeadingsRow +
+        (contextualHtml || '<p class="empty-hint">No related contextual tags yet. Click "Add contextual tag" above to add one.</p>') +
+        '</div></div>' +
+        '</div></div>';
+    }
+
+    function renderTags(tags) {
+      tags = tags || [];
+      const normalized = tags.map(function(t) {
+        const r = (t.role || 'contextual').toString().toLowerCase();
+        return Object.assign({}, t, { role: r === 'core' ? 'core' : 'contextual' });
+      });
+      const coreTags = normalized.filter(function(t) { return t.role === 'core'; });
+      const contextualTags = normalized.filter(function(t) { return t.role !== 'core'; });
+      const coreNames = coreTags.map(function(t) { return t.name; });
+
+      var contextualByCore = {};
+      coreNames.forEach(function(n) { contextualByCore[n] = []; });
+      var unassignedContextual = [];
+      contextualTags.forEach(function(tag) {
+        var rels = tag.relations || [];
+        var pushedToAnyCore = false;
+        for (var i = 0; i < rels.length; i++) {
+          var ln = (rels[i].linked_to_tag_name != null ? rels[i].linked_to_tag_name : rels[i].linked_to_tag);
+          var linkedName = (ln != null ? ln : '').toString().trim();
+          if (!linkedName) continue;
+          for (var c = 0; c < coreNames.length; c++) {
+            if ((coreNames[c] || '').toString().trim() === linkedName) {
+              contextualByCore[coreNames[c]] = contextualByCore[coreNames[c]] || [];
+              contextualByCore[coreNames[c]].push(tag);
+              pushedToAnyCore = true;
+              break;
+            }
+          }
+        }
+        if (!pushedToAnyCore) {
+          unassignedContextual.push(tag);
+        }
+      });
+
+      $('#core-tags-list').empty();
+      coreTags.forEach(function(coreTag) {
+        var under = contextualByCore[coreTag.name] || [];
+        $('#core-tags-list').append(buildCoreTagBlock(coreTag, under, coreNames, nextContextualCollapseId()));
+      });
+      if (coreTags.length === 0) {
+        $('#core-tags-list').append(buildCoreTagBlock({ name: '', type: 'topic', weight: 50 }, [], [], nextContextualCollapseId()));
+      }
+
+      $('#unassigned-contextual-list').empty();
+      if (unassignedContextual.length > 0) {
+        $('#unassigned-contextual-list').append(contextualHeadingsRow);
+        unassignedContextual.forEach(function(tag) {
+          const ln = (tag.relations && tag.relations[0]) ? (tag.relations[0].linked_to_tag_name != null ? tag.relations[0].linked_to_tag_name : tag.relations[0].linked_to_tag) || '' : '';
+          $('#unassigned-contextual-list').append(buildContextualRowHtml(tag, ln, coreNames, false));
+        });
+      }
+      $('#unassigned-accordion-label').text('Unassigned contextual tags (' + unassignedContextual.length + ')');
+    }
+
+    function addEmptyCoreTagBlock() {
+      var coreNames = getCoreTagNamesFromDom();
+      $('#core-tags-list').append(buildCoreTagBlock({ name: '', type: 'topic', weight: 50 }, [], coreNames));
+    }
+
+    function addContextualUnderCore($block) {
+      var coreName = $block.find('.core-tag-row .tag-name').val().trim();
+      var coreNames = getCoreTagNamesFromDom();
+      if (!coreName) coreNames = coreNames.slice(0);
+      var row = buildContextualRowHtml({ name: '', type: 'topic', weight: 50, relations: [] }, coreName, coreNames, true);
+      var $container = $block.find('.contextual-under-core');
+      $container.find('p.empty-hint, p.small.text-muted').remove();
+      $container.append(row);
+      var n = $container.find('.contextual-tag-row').length;
+      $block.find('.contextual-toggle-text').text('Contextual tags (' + n + ')');
+      $block.find('.collapse').collapse('show');
+    }
+
+    function addUnassignedContextualRow() {
+      var coreNames = getCoreTagNamesFromDom();
+      if ($('#unassigned-contextual-list .contextual-headings').length === 0) {
+        $('#unassigned-contextual-list').append(contextualHeadingsRow);
+      }
+      var row = buildContextualRowHtml({ name: '', type: 'topic', weight: 50, relations: [] }, '', coreNames, false);
+      $('#unassigned-contextual-list').append(row);
+      if (!$('#unassigned-contextual-collapse').hasClass('show')) {
+        $('#unassigned-accordion-btn').click();
+      }
+      updateUnassignedLabel();
+    }
+
+    function updateUnassignedLabel() {
+      var n = $('#unassigned-contextual-list .contextual-tag-row').length;
+      $('#unassigned-accordion-label').text('Unassigned contextual tags (' + n + ')');
+    }
+
+    $('#add-core-tag-btn').on('click', function() {
+      addEmptyCoreTagBlock();
+    });
+
+    $('#add-unassigned-contextual-btn').on('click', function() {
+      addUnassignedContextualRow();
+    });
+
+    $(document).on('click', '.add-contextual-under-core', function() {
+      addContextualUnderCore($(this).closest('.core-tag-block'));
+    });
+
+    $(document).on('click', '.remove-core-tag', function() {
+      $(this).closest('.core-tag-block').remove();
+    });
+
+    $(document).on('click', '.remove-contextual-tag', function() {
+      var $row = $(this).closest('.contextual-tag-row');
+      var $list = $row.parent();
+      $row.remove();
+      if ($list.attr('id') === 'unassigned-contextual-list') {
+        if ($list.children('.contextual-tag-row').length === 0) $list.empty();
+        updateUnassignedLabel();
+      } else if ($list.hasClass('contextual-under-core')) {
+        var n = $list.children('.contextual-tag-row').length;
+        $list.closest('.core-tag-block').find('.contextual-toggle-text').text('Contextual tags (' + n + ')');
+        if (n === 0) {
+          $list.html(contextualHeadingsRow + '<p class="empty-hint">No related contextual tags yet. Click "Add contextual tag" above to add one.</p>');
+        }
+      }
+    });
+
+    $(document).on('change', '.tag-type', function() {
+      var $row = $(this).closest('.core-tag-row, .contextual-tag-row');
+      if ($row.length) syncTagNameControlByType($row);
+    });
+
+    $('#save-tags-btn').on('click', function() {
+      const tags = [];
+      $('#core-tags-list .core-tag-block').each(function() {
+        const name = $(this).find('.core-tag-row .tag-name').val().trim();
+        if (!name) return;
+        tags.push({
+          name: name,
+          type: $(this).find('.core-tag-row .tag-type').val() || 'topic',
+          weight: parseInt($(this).find('.core-tag-row .tag-weight').val(), 10) || 50,
+          role: 'core',
+          relations: []
+        });
+      });
+
+      var contextualMap = {};
+      function contextualKey(n, t) { return (n || '').trim().toLowerCase() + '|' + ((t || 'topic').toString().toLowerCase()); }
+      function addContextualRow($row) {
+        const name = $row.find('.tag-name').val().trim();
+        if (!name) return;
+        const type = $row.find('.tag-type').val() || 'topic';
+        const weight = parseInt($row.find('.tag-weight').val(), 10) || 50;
+        const linked_to = $row.find('.tag-linked-to').val().trim();
+        var key = contextualKey(name, type);
+        if (!contextualMap[key]) {
+          contextualMap[key] = { name: name, type: type, weight: weight, role: 'contextual', relations: [] };
+        }
+        if (linked_to) {
+          var rels = contextualMap[key].relations;
+          var found = false;
+          for (var r = 0; r < rels.length; r++) {
+            if ((rels[r].linked_to_tag || '').trim() === linked_to) { found = true; break; }
+          }
+          if (!found) {
+            rels.push({ linked_to_tag: linked_to, relation_type: 'core_associated' });
+          }
+        }
+      }
+      $('#core-tags-list .core-tag-block').each(function() {
+        $(this).find('.contextual-under-core .contextual-tag-row').each(function() { addContextualRow($(this)); });
+      });
+      $('#unassigned-contextual-list .contextual-tag-row').each(function() { addContextualRow($(this)); });
+
+      Object.keys(contextualMap).forEach(function(k) { tags.push(contextualMap[k]); });
+
+      $.ajax({
+        url: `{{ url_for('api_update_article_tags', event_id='PLACEHOLDER') }}`.replace('PLACEHOLDER', currentEventId),
+        method: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify({ tags: tags }),
+        success: function(resp) {
+          if (resp.success) {
+            $('#tagsModal').modal('hide');
+            loadArticles(currentPage); // Refresh the articles list
+            alert(resp.pending_approval ? 'Changes submitted for approval' : 'Tags updated successfully');
+          } else {
+            alert('Error updating tags: ' + resp.error);
+          }
+        },
+        error: function() {
+          alert('Error updating tags');
+        }
+      });
+    });
+  });
+</script>
+</body>
+</html>

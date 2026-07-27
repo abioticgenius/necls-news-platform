@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Pending Approvals</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    #viewModal .modal-body { max-height: 70vh; overflow-y: auto; }
+    #viewModal .change-detail-section { margin-bottom: 1rem; }
+    #viewModal pre.payload-preview { font-size: 0.85rem; white-space: pre-wrap; background: #f8f9fa; padding: 0.75rem; border-radius: 0.25rem; }
+  </style>
+</head>
+<body class="container py-3">
+<p class="text-end">Logged in as {{ current_user.username }} <a href="{{ url_for('change_password') }}">(change password)</a> <a href="{{ url_for('logout') }}">(logout)</a></p>
+<p><a href="{{ url_for('get_articles') }}" class="btn btn-secondary">Back to Articles</a></p>
+
+<h1>Pending Approvals</h1>
+
+{% if not pending %}
+<p class="text-muted">No pending changes.</p>
+{% else %}
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Who</th>
+      <th>When</th>
+      <th>Article</th>
+      <th>What changed</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in pending %}
+    <tr data-pending-id="{{ p.id }}">
+      <td>{{ p.created_by_username }}</td>
+      <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '-' }}</td>
+      <td>
+        <a href="{{ url_for('edit_article', event_id=p.target_event_id) }}">{{ p.target_title or '(no title)' }}</a>
+      </td>
+      <td>{{ p.summary or '-' }}</td>
+      <td>
+        <button type="button" class="btn btn-outline-primary btn-sm view-btn me-1" data-id="{{ p.id }}">View</button>
+        <button type="button" class="btn btn-success btn-sm approve-btn" data-id="{{ p.id }}">Approve</button>
+        <button type="button" class="btn btn-danger btn-sm reject-btn ms-1" data-id="{{ p.id }}">Reject</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<!-- View details modal -->
+<div class="modal fade" id="viewModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Pending change details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="viewModalBody">
+        <p class="text-muted">Loading…</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-success" id="viewModalApprove">Approve</button>
+        <button type="button" class="btn btn-danger" id="viewModalReject">Reject</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function() {
+  const base = "{{ url_for('pending_changes_list') }}".replace(/\/?$/, '');
+  let viewModalCurrentId = null;
+
+  function action(id, path) {
+    fetch(base + '/' + id + '/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          const row = document.querySelector('tr[data-pending-id="' + id + '"]');
+          if (row) row.remove();
+          const rows = document.querySelectorAll('tbody tr');
+          if (rows.length === 0) location.reload();
+          const modal = bootstrap.Modal.getInstance(document.getElementById('viewModal'));
+          if (modal && viewModalCurrentId === id) modal.hide();
+        } else {
+          alert(data.error || 'Action failed');
+        }
+      })
+      .catch(() => alert('Request failed'));
+  }
+
+  function truncate(str, maxLen) {
+    if (str == null) return '';
+    const s = String(str);
+    if (s.length <= maxLen) return s;
+    return s.substring(0, maxLen) + '…';
+  }
+
+  function toDisplay(val) {
+    if (val == null) return '';
+    if (typeof val === 'object') return JSON.stringify(val, null, 2);
+    return String(val);
+  }
+
+  function renderArticleChangesOnly(diff) {
+    if (!diff) return '<p class="text-muted">No changes.</p>';
+    let html = '';
+    const loc = diff.localized_changes || [];
+    loc.forEach(function(l) {
+      const lang = l.language_id || '?';
+      html += '<div class="change-detail-section"><strong>' + escapeHtml(lang.toUpperCase()) + ' localized</strong><ul class="mb-0">';
+      const ch = l.changes || {};
+      ['title', 'content', 'audio', 'audio_full_story'].forEach(function(field) {
+        if (!ch[field]) return;
+        const oldVal = ch[field].old;
+        const newVal = ch[field].new;
+        const isLong = field === 'content';
+        html += '<li><strong>' + field + '</strong>: ';
+        if (isLong) {
+          html += '<div class="d-flex gap-3 mt-1"><div class="flex-grow-1"><small class="text-muted">Before:</small><pre class="payload-preview mb-1" style="max-height: 200px; overflow: auto;">' + escapeHtml(toDisplay(oldVal)) + '</pre></div>';
+          html += '<div class="flex-grow-1"><small class="text-success">After:</small><pre class="payload-preview mb-1" style="max-height: 200px; overflow: auto;">' + escapeHtml(toDisplay(newVal)) + '</pre></div></div>';
+        } else {
+          html += '<del class="text-muted">' + escapeHtml(truncate(toDisplay(oldVal), 120)) + '</del> → ';
+          html += '<ins>' + escapeHtml(truncate(toDisplay(newVal), 120)) + '</ins>';
+        }
+        html += '</li>';
+      });
+      html += '</ul></div>';
+    });
+    const srcAdd = diff.sources_added || [];
+    if (srcAdd.length) {
+      html += '<div class="change-detail-section"><strong>Sources added</strong><ul class="mb-0">';
+      srcAdd.forEach(function(s) {
+        html += '<li>' + escapeHtml(truncate(s.title || s.source_url, 100)) + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    const srcRem = diff.sources_removed || [];
+    if (srcRem.length) {
+      html += '<div class="change-detail-section"><strong>Sources removed</strong><ul class="mb-0">';
+      srcRem.forEach(function(s) {
+        html += '<li>' + escapeHtml(truncate(s.title || s.source_url, 100)) + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    const anaCh = diff.analysis_changes || [];
+    anaCh.forEach(function(a) {
+      const contentTypeLabel = (a.changes && a.changes.content_type ? (a.changes.content_type.new || a.changes.content_type.old) : '') || 'analysis';
+      const friendlyType = contentTypeLabel.replace(/_/g, ' ');
+      html += '<div class="change-detail-section"><strong>' + escapeHtml(friendlyType) + ' (' + escapeHtml((a.language_id || '').toUpperCase()) + ')</strong>';
+      const ch = a.changes || {};
+      if (ch.content_type) {
+        html += '<p class="mb-1"><strong>Content type:</strong> <del class="text-muted">' + escapeHtml(toDisplay(ch.content_type.old)) + '</del> → <ins>' + escapeHtml(toDisplay(ch.content_type.new)) + '</ins></p>';
+      }
+      if (ch.content) {
+        html += '<p class="mb-1"><strong>Content:</strong></p>';
+        html += '<div class="d-flex gap-3"><div class="flex-grow-1"><small class="text-muted">Before:</small><pre class="payload-preview mb-1" style="max-height: 220px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(ch.content.old)) + '</pre></div>';
+        html += '<div class="flex-grow-1"><small class="text-success">After:</small><pre class="payload-preview mb-1" style="max-height: 220px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(ch.content.new)) + '</pre></div></div>';
+      }
+      html += '</div>';
+    });
+    const soFarCh = diff.so_far_changes || [];
+    soFarCh.forEach(function(a) {
+      const contentTypeLabel = (a.changes && a.changes.content_type ? (a.changes.content_type.new || a.changes.content_type.old) : '') || 'story so far / concepts decoded';
+      const friendlyType = (contentTypeLabel.replace(/_/g, ' ').trim() || 'story so far / concepts decoded');
+      html += '<div class="change-detail-section"><strong>' + escapeHtml(friendlyType.charAt(0).toUpperCase() + friendlyType.slice(1)) + ' (' + escapeHtml((a.language_id || '').toUpperCase()) + ')</strong>';
+      const ch = a.changes || {};
+      if (ch.content_type) {
+        html += '<p class="mb-1"><strong>Content type:</strong> <del class="text-muted">' + escapeHtml(toDisplay(ch.content_type.old)) + '</del> → <ins>' + escapeHtml(toDisplay(ch.content_type.new)) + '</ins></p>';
+      }
+      if (ch.content) {
+        html += '<p class="mb-1"><strong>Content:</strong></p>';
+        html += '<div class="d-flex gap-3"><div class="flex-grow-1"><small class="text-muted">Before:</small><pre class="payload-preview mb-1" style="max-height: 220px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(ch.content.old)) + '</pre></div>';
+        html += '<div class="flex-grow-1"><small class="text-success">After:</small><pre class="payload-preview mb-1" style="max-height: 220px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(ch.content.new)) + '</pre></div></div>';
+      }
+      html += '</div>';
+    });
+    (diff.faqs_added || []).forEach(function(f) {
+      html += '<div class="change-detail-section"><strong class="text-success">FAQ added (' + escapeHtml((f.language_id || '').toUpperCase()) + ')</strong>';
+      html += '<p class="mb-1"><strong>Q:</strong> ' + escapeHtml(truncate(f.question, 200)) + '</p>';
+      if (f.answer) html += '<p class="mb-0"><strong>A:</strong> ' + escapeHtml(truncate(f.answer, 300)) + '</p>';
+      html += '</div>';
+    });
+    (diff.faqs_removed || []).forEach(function(f) {
+      html += '<div class="change-detail-section"><strong class="text-danger">FAQ removed (' + escapeHtml((f.language_id || '').toUpperCase()) + ')</strong>';
+      html += '<p class="mb-0">' + escapeHtml(truncate(f.question, 200)) + '</p></div>';
+    });
+    (diff.faqs_changes || []).forEach(function(f) {
+      html += '<div class="change-detail-section"><strong>FAQ changed (' + escapeHtml((f.language_id || '').toUpperCase()) + ')</strong>';
+      html += '<p class="mb-1">' + escapeHtml(truncate(f.question, 200)) + '</p>';
+      html += '<p class="mb-1"><strong>Answer:</strong></p>';
+      html += '<div class="d-flex gap-3"><div class="flex-grow-1"><small class="text-muted">Before:</small><pre class="payload-preview mb-1" style="max-height: 180px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(f.old_answer)) + '</pre></div>';
+      html += '<div class="flex-grow-1"><small class="text-success">After:</small><pre class="payload-preview mb-1" style="max-height: 180px; overflow: auto; white-space: pre-wrap;">' + escapeHtml(toDisplay(f.new_answer)) + '</pre></div></div>';
+      html += '</div>';
+    });
+    return html || '<p class="text-muted">No changes.</p>';
+  }
+
+  function renderArticleUpdate(payload) {
+    const ld = payload.localized_data || [];
+    const src = payload.sources || [];
+    const ana = payload.analysis || [];
+    let html = '';
+    if (ld.length) {
+      html += '<div class="change-detail-section"><strong>Localized content</strong><ul class="mb-0">';
+      ld.forEach(function(l) {
+        const lang = l.language_id || '?';
+        const title = (l.title || '').substring(0, 80) + ((l.title || '').length > 80 ? '…' : '');
+        const contentLen = (l.content || '').length;
+        html += '<li>' + lang + ': title "' + escapeHtml(title) + '"; content length ' + contentLen + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    if (src.length) {
+      html += '<div class="change-detail-section"><strong>Sources</strong><ul class="mb-0">';
+      src.forEach(function(s) {
+        html += '<li>' + escapeHtml((s.title || s.source_url || '').substring(0, 100)) + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    if (ana.length) {
+      html += '<div class="change-detail-section"><strong>Analysis</strong> ' + ana.length + ' block(s)</div>';
+    }
+    return html || '<p class="text-muted">No structured data.</p>';
+  }
+
+  function renderTagsUpdate(payload) {
+    const tags = payload.tags || [];
+    if (!tags.length) return '<p class="text-muted">No tags.</p>';
+    let html = '<div class="change-detail-section"><strong>Tags</strong><ul class="mb-0">';
+    tags.forEach(function(t) {
+      const name = t.name || '(unnamed)';
+      const type = t.type || 'tag';
+      const weight = t.weight != null ? t.weight : 50;
+      const rels = t.relations || [];
+      const relStr = rels.length ? ' → ' + rels.map(function(r) { return (r.relation_type || '') + ':' + (r.linked_to_tag || ''); }).join(', ') : '';
+      html += '<li>' + escapeHtml(name) + ' <span class="badge bg-secondary">' + type + '</span> weight ' + weight + relStr + '</li>';
+    });
+    html += '</ul></div>';
+    return html;
+  }
+
+  function renderTagsChangesOnly(diff) {
+    if (!diff) return '<p class="text-muted">No changes.</p>';
+    let html = '';
+    const added = diff.added_tags || [];
+    const removed = diff.removed_tags || [];
+    const weightCh = diff.weight_changes || [];
+    const relAdded = diff.relation_added || [];
+    const relRemoved = diff.relation_removed || [];
+    if (added.length) {
+      html += '<div class="change-detail-section"><strong>Tags added</strong><ul class="mb-0">';
+      added.forEach(function(t) {
+        html += '<li>' + escapeHtml(t.name) + ' <span class="badge bg-secondary">' + (t.type || 'tag') + '</span> weight ' + (t.weight || 50);
+        if (t.relations && t.relations.length) html += ' → ' + t.relations.map(function(r) { return (r.relation_type || '') + ':' + (r.linked_to_tag || ''); }).join(', ');
+        html += '</li>';
+      });
+      html += '</ul></div>';
+    }
+    if (removed.length) {
+      html += '<div class="change-detail-section"><strong>Tags removed</strong><ul class="mb-0">';
+      removed.forEach(function(t) {
+        html += '<li>' + escapeHtml(t.name) + ' <span class="badge bg-secondary">' + (t.type || 'tag') + '</span></li>';
+      });
+      html += '</ul></div>';
+    }
+    if (weightCh.length) {
+      html += '<div class="change-detail-section"><strong>Weight changes</strong><ul class="mb-0">';
+      weightCh.forEach(function(t) {
+        html += '<li>' + escapeHtml(t.name) + ': ' + t.old_weight + ' → ' + t.new_weight + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    if (relAdded.length) {
+      html += '<div class="change-detail-section"><strong>Relations added</strong><ul class="mb-0">';
+      relAdded.forEach(function(r) {
+        html += '<li>' + escapeHtml(r.tag_name) + ' → ' + escapeHtml(r.relation_type) + ':' + escapeHtml(r.linked_to_tag) + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    if (relRemoved.length) {
+      html += '<div class="change-detail-section"><strong>Relations removed</strong><ul class="mb-0">';
+      relRemoved.forEach(function(r) {
+        html += '<li>' + escapeHtml(r.tag_name) + ' → ' + escapeHtml(r.relation_type) + ':' + escapeHtml(r.linked_to_tag) + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    return html || '<p class="text-muted">No changes.</p>';
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  document.querySelectorAll('.view-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      const id = this.getAttribute('data-id');
+      viewModalCurrentId = id;
+      const body = document.getElementById('viewModalBody');
+      body.innerHTML = '<p class="text-muted">Loading…</p>';
+      const modal = new bootstrap.Modal(document.getElementById('viewModal'));
+      modal.show();
+      fetch(base + '/' + id, { credentials: 'same-origin' })
+        .then(function(r) {
+          if (!r.ok) throw new Error('Not found');
+          return r.json();
+        })
+        .then(function(data) {
+          body.innerHTML = '<p><strong>By</strong> ' + escapeHtml(data.created_by_username || '') + ' <strong>at</strong> ' + (data.created_at || '') + '</p>';
+          body.innerHTML += '<p><strong>Article</strong> ' + escapeHtml(data.target_title || '(no title)') + '</p>';
+          body.innerHTML += '<p><strong>Summary</strong> ' + escapeHtml(data.summary || '-') + '</p><hr>';
+          const payload = data.payload || {};
+          if (data.change_type === 'article_update') {
+            if (data.changes_only) {
+              body.innerHTML += renderArticleChangesOnly(data.changes_only);
+            } else {
+              body.innerHTML += renderArticleUpdate(payload);
+            }
+          } else if (data.change_type === 'article_tags_update') {
+            if (data.changes_only) {
+              body.innerHTML += renderTagsChangesOnly(data.changes_only);
+            } else {
+              body.innerHTML += renderTagsUpdate(payload);
+            }
+          } else {
+            body.innerHTML += '<pre class="payload-preview">' + escapeHtml(JSON.stringify(payload, null, 2)) + '</pre>';
+          }
+        })
+        .catch(function() {
+          body.innerHTML = '<p class="text-danger">Could not load details.</p>';
+        });
+    });
+  });
+
+  document.getElementById('viewModalApprove').addEventListener('click', function() {
+    if (viewModalCurrentId) action(viewModalCurrentId, 'approve');
+  });
+  document.getElementById('viewModalReject').addEventListener('click', function() {
+    if (viewModalCurrentId) action(viewModalCurrentId, 'reject');
+  });
+
+  document.querySelectorAll('.approve-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { action(this.getAttribute('data-id'), 'approve'); });
+  });
+  document.querySelectorAll('.reject-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { action(this.getAttribute('data-id'), 'reject'); });
+  });
+})();
+</script>
+</body>
+</html>

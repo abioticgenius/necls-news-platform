@@ -1,0 +1,193 @@
+version: '3.9'
+
+services:
+  # PostgreSQL database with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: thinko-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_INITDB_ARGS: "-c shared_preload_libraries=vector"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./infrastructure/postgres/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thinko-network
+
+  # Core Service - Node.js REST API
+  core-service:
+    build:
+      context: ./core-service
+      dockerfile: Dockerfile
+    container_name: thinko-core-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database
+      APP_DB_HOST: postgres
+      APP_DB_PORT: 5432
+      APP_DB_USER: ${DB_USER:-admin}
+      APP_DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      APP_DB_NAME: app_db
+      APP_DB_SSL: "false"
+
+      # Server
+      PORT: 7090
+      NODE_ENV: development
+      WEB_URL: http://localhost:3000
+
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-demo-key}
+      OPENAI_ASSISTANT_MODEL: gpt-5-nano
+
+      # Firebase (demo keys - replace with real ones for production)
+      FIREBASE_SERVICE_ACCOUNT: '{"type":"service_account","project_id":"demo","private_key_id":"demo","private_key":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn/M+DlYaAWyA6V...REDACTED...FOR DEMO\n-----END RSA PRIVATE KEY-----","client_email":"demo@demo.iam.gserviceaccount.com"}'
+
+      # AWS (demo keys - replace for production)
+      AWS_ACCESS_KEY_ID: demo-access-key
+      AWS_SECRET_ACCESS_KEY: demo-secret-key
+      ONBOARDING_BUCKET_PATH: s3://demo-bucket/
+
+      # YouTube
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-demo-key}
+
+      # Internal
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-demo-secret}
+
+    ports:
+      - "7090:7090"
+    volumes:
+      - ./core-service/src:/usr/src/app/src
+      - ./core-service/dist:/usr/src/app/dist
+    networks:
+      - thinko-network
+    command: npm run dev
+
+  # NECLS Backend - Python Pipeline
+  necls-pipeline:
+    build:
+      context: ./necls-backend
+      dockerfile: Dockerfile
+    container_name: thinko-necls-pipeline
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Databases
+      FEEDCRAWLER_DB_HOST: postgres
+      FEEDCRAWLER_DB_PORT: 5432
+      FEEDCRAWLER_DB_USER: ${DB_USER:-admin}
+      FEEDCRAWLER_DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      FEEDCRAWLER_DB_NAME: feedcrawler_db
+      FEEDCRAWLER_DB_SSL: "false"
+
+      APP_DB_HOST: postgres
+      APP_DB_PORT: 5432
+      APP_DB_USER: ${DB_USER:-admin}
+      APP_DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      APP_DB_NAME: app_db
+      APP_DB_SSL: "false"
+
+      # Pipeline
+      PIPELINE_INTERVAL_MIN: "0"  # Run once and exit
+      EXTRACT_HOURS_RECENCY: "24"
+      CLUSTERING_HOURS: "24"
+      CLUSTERING_THETA: "0.55"
+      CLUSTERING_THRESHOLD: "0.6"
+      GNEWS_MAX_YEARS: "2"
+
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-demo-key}
+      OPENAI_API_KEY2: ${OPENAI_API_KEY2:-sk-demo-key}
+
+      # Google
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-demo-key}
+      GEMINI_API_KEY2: ${GEMINI_API_KEY2:-demo-key}
+
+      # AWS
+      AWS_ACCESS_KEY_ID: demo-access-key
+      AWS_SECRET_ACCESS_KEY: demo-secret-key
+      AWS_DEFAULT_REGION: ap-south-1
+      AUDIO_BUCKET: demo-audio-bucket
+      AUDIO_PREFIX: audio/
+
+      # External APIs
+      HF_TOKEN: ${HF_TOKEN:-demo-token}
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-demo-key}
+
+      # Internal
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-demo-secret}
+      CORE_SERVICE_URL: http://core-service:7090
+
+      # Admin
+      INITIAL_ADMIN_USERNAME: admin
+      INITIAL_ADMIN_PASSWORD: changeme
+
+    volumes:
+      - ./necls-backend/necls_backend:/app/necls_backend
+      - ./necls-backend/scripts:/app/scripts
+    networks:
+      - thinko-network
+    # Run pipeline once: extract → cluster → llm → sync
+    command: ["python", "scripts/run_pipeline.py"]
+
+  # NECLS Webadmin - Editorial UI
+  necls-webadmin:
+    build:
+      context: ./necls-backend
+      dockerfile: Dockerfile
+    container_name: thinko-necls-webadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Databases
+      FEEDCRAWLER_DB_HOST: postgres
+      FEEDCRAWLER_DB_PORT: 5432
+      FEEDCRAWLER_DB_USER: ${DB_USER:-admin}
+      FEEDCRAWLER_DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      FEEDCRAWLER_DB_NAME: feedcrawler_db
+      FEEDCRAWLER_DB_SSL: "false"
+
+      APP_DB_HOST: postgres
+      APP_DB_PORT: 5432
+      APP_DB_USER: ${DB_USER:-admin}
+      APP_DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      APP_DB_NAME: app_db
+      APP_DB_SSL: "false"
+
+      # Admin credentials
+      INITIAL_ADMIN_USERNAME: admin
+      INITIAL_ADMIN_PASSWORD: changeme
+
+      # Core Service URL
+      CORE_SERVICE_URL: http://core-service:7090
+
+      # Internal
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-demo-secret}
+
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./necls-backend/necls_backend:/app/necls_backend
+    networks:
+      - thinko-network
+    command: ["python", "-m", "necls_backend.webadmin.app"]
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  thinko-network:
+    driver: bridge

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Manual Approval History</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container-fluid py-3">
+<p class="text-end">Logged in as {{ current_user.username }} <a href="{{ url_for('change_password') }}">(change password)</a> <a href="{{ url_for('logout') }}">(logout)</a></p>
+<p>
+  <a href="{{ url_for('get_articles') }}" class="btn btn-info me-2">Articles Management</a>
+  <a href="{{ url_for('rejected_clusters') }}" class="btn btn-warning me-2">Rejected Clusters</a>
+  <a href="{{ url_for('index') }}" class="btn btn-secondary">Home</a>
+</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <ul>
+    {% for category, message in messages %}
+    <li class="{{ category }}">{{ message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+{% endwith %}
+
+<h1>Manual Approval History</h1>
+<p class="text-muted">Clusters that were manually approved from the Rejected Clusters tab. Processed = exported to app DB.</p>
+
+<!-- Filters -->
+<div class="row mb-3 g-2 align-items-end">
+  <div class="col-auto">
+    <label class="form-label">Approved After</label>
+    <input type="date" id="start-date" class="form-control">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Approved Before</label>
+    <input type="date" id="end-date" class="form-control">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Search</label>
+    <input type="text" id="search-input" class="form-control" placeholder="Headline or cluster ID">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Order</label>
+    <select id="order-dir" class="form-select">
+      <option value="desc">Newest first</option>
+      <option value="asc">Oldest first</option>
+    </select>
+  </div>
+  <div class="col-auto align-self-end">
+    <button id="apply-filters" class="btn btn-primary">Apply</button>
+    <button id="clear-filters" class="btn btn-secondary">Clear</button>
+  </div>
+</div>
+
+<p id="result-count" class="text-muted small"></p>
+
+<table id="history-table" class="table table-striped table-sm">
+  <thead>
+  <tr>
+    <th>Cluster ID</th>
+    <th>Title / Heading</th>
+    <th>Approved At</th>
+    <th>Status</th>
+    <th>Actions</th>
+  </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<!-- Pagination -->
+<nav id="pagination-nav" class="mt-3" style="display:none;">
+  <ul class="pagination justify-content-center" id="pagination"></ul>
+</nav>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  const apiUrl = '{{ url_for("clusters_data") }}';
+  let currentPage = 1;
+  const perPage = 25;
+
+  function loadHistory(page) {
+    page = page || 1;
+    currentPage = page;
+
+    const params = {
+      approval_status: 'manual_approved',
+      per_page: perPage,
+      page: currentPage,
+      start_date: $('#start-date').val(),
+      end_date: $('#end-date').val(),
+      search: $('#search-input').val(),
+      sort_by: 'last_gen',
+      order: $('#order-dir').val()
+    };
+
+    $.getJSON(apiUrl, params, function(resp) {
+      const tbody = $('#history-table tbody').empty();
+      const data = resp.data || [];
+
+      if (data.length === 0) {
+        tbody.append('<tr><td colspan="5" class="text-center text-muted">No manually approved clusters found</td></tr>');
+        $('#result-count').text('');
+        $('#pagination-nav').hide();
+        return;
+      }
+
+      $('#result-count').text(`Showing ${(currentPage - 1) * perPage + 1}–${Math.min(currentPage * perPage, resp.filtered)} of ${resp.filtered} (total: ${resp.total})`);
+
+      data.forEach(function(row) {
+        const approvedAt = row.updated_at
+          ? new Date(row.updated_at).toLocaleString()
+          : '-';
+
+        const heading = row.title || row.mini_heading || '(no title)';
+
+        const statusBadge = row.synced
+          ? '<span class="badge bg-success">Processed</span>'
+          : '<span class="badge bg-warning text-dark">Pending</span>';
+
+        let tr = `<tr>`;
+        tr += `<td><small class="font-monospace">${row.cluster_id}</small></td>`;
+        tr += `<td>${heading}</td>`;
+        tr += `<td>${approvedAt}</td>`;
+        tr += `<td>${statusBadge}</td>`;
+        tr += `<td><a href="${row.cluster_url}" class="btn btn-sm btn-outline-primary">View</a></td>`;
+        tr += `</tr>`;
+        tbody.append(tr);
+      });
+
+      updatePagination(resp.filtered, currentPage, perPage);
+    }).fail(function() {
+      $('#history-table tbody').html('<tr><td colspan="5" class="text-center text-danger">Error loading history</td></tr>');
+    });
+  }
+
+  function updatePagination(total, page, perPage) {
+    const totalPages = Math.ceil(total / perPage);
+    const pagination = $('#pagination').empty();
+
+    if (totalPages <= 1) {
+      $('#pagination-nav').hide();
+      return;
+    }
+    $('#pagination-nav').show();
+
+    if (page > 1) {
+      pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="${page - 1}">Previous</a></li>`);
+    }
+
+    const startPage = Math.max(1, page - 2);
+    const endPage = Math.min(totalPages, page + 2);
+
+    if (startPage > 1) {
+      pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>`);
+      if (startPage > 2) {
+        pagination.append(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
+      }
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+      pagination.append(`<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`);
+    }
+
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        pagination.append(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
+      }
+      pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a></li>`);
+    }
+
+    if (page < totalPages) {
+      pagination.append(`<li class="page-item"><a class="page-link" href="#" data-page="${page + 1}">Next</a></li>`);
+    }
+  }
+
+  $(document).ready(function() {
+    loadHistory(1);
+
+    $('#apply-filters').on('click', function() { loadHistory(1); });
+    $('#order-dir').on('change', function() { loadHistory(1); });
+    $('#search-input').on('keydown', function(e) { if (e.key === 'Enter') loadHistory(1); });
+
+    $('#clear-filters').on('click', function() {
+      $('#start-date, #end-date, #search-input').val('');
+      $('#order-dir').val('desc');
+      loadHistory(1);
+    });
+
+    $(document).on('click', '.page-link', function(e) {
+      e.preventDefault();
+      const page = parseInt($(this).data('page'));
+      if (page) loadHistory(page);
+    });
+  });
+</script>
+</body>
+</html>

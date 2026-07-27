@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Notifications – ThinkO Admin</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f8f9fa; }
+    .card { border-radius: 12px; }
+    .link-preview {
+      font-family: monospace;
+      font-size: 0.82rem;
+      background: #e9ecef;
+      border-radius: 6px;
+      padding: 8px 12px;
+      word-break: break-all;
+      min-height: 36px;
+    }
+    .char-count { font-size: 0.78rem; color: #6c757d; text-align: right; }
+  </style>
+</head>
+<body class="py-4">
+<div class="container" style="max-width: 680px;">
+
+  <!-- Header -->
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h2 class="mb-0 fw-bold">Notifications</h2>
+      <p class="text-muted mb-0 small">Broadcast push notifications to ThinkO users</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('notification_groups_page') }}" class="btn btn-outline-secondary btn-sm">Groups</a>
+      <a href="{{ url_for('get_articles') }}" class="btn btn-outline-secondary btn-sm">← Back</a>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <!-- Compose Card -->
+  <div class="card shadow-sm border-0">
+    <div class="card-header border-0 bg-danger bg-gradient text-white rounded-top py-3 px-4">
+      <h5 class="mb-0 fw-semibold">Compose Notification</h5>
+      <p class="mb-0 small opacity-75">Sent immediately to active devices</p>
+    </div>
+    <div class="card-body p-4">
+      <form method="post" action="{{ url_for('send_breaking_news_direct') }}" id="notif-form">
+        <input type="hidden" name="group_id" id="group_id_input">
+
+        <!-- Title -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Title <span class="text-danger">*</span></label>
+          <input type="text" name="breaking_title" id="notif_title" class="form-control form-control-lg"
+                 placeholder="e.g. Breaking: India wins World Cup" maxlength="100" required
+                 oninput="updatePreview(); updateCount(this, 'title_count', 100)">
+          <div class="char-count mt-1"><span id="title_count">0</span>/100</div>
+        </div>
+
+        <!-- Body -->
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Message <span class="text-danger">*</span></label>
+          <textarea name="breaking_body" id="notif_body" class="form-control" rows="3"
+                    placeholder="Short message shown below the title…" maxlength="300" required
+                    oninput="updateCount(this, 'body_count', 300)"></textarea>
+          <div class="char-count mt-1"><span id="body_count">0</span>/300</div>
+        </div>
+
+        <!-- Link Section -->
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Deep Link <span class="text-muted fw-normal">(optional)</span></label>
+          <p class="text-muted small mb-2">Paste the deep link below. When users tap the notification, they'll be taken directly to the article or collection.</p>
+          <input type="text" name="deep_link" id="deep_link_input" class="form-control font-monospace"
+                 placeholder="thinkonewsapp://…" autocomplete="off"
+                 oninput="onDeepLinkInput()">
+          <div class="mt-2 small text-muted">
+            Article: <code>thinkonewsapp://immersrsive_news_article?articleId=ID</code><br>
+            Collection: <code>thinkonewsapp://immersrsive_news_article?collectionId=ID</code>
+          </div>
+
+          <!-- Link Image Preview -->
+          <div id="link_image_preview" class="d-none mt-3 p-3 rounded border bg-white d-flex gap-3 align-items-center">
+            <img id="link_preview_img" src="" alt="Preview" style="width:80px;height:56px;object-fit:cover;border-radius:6px;flex-shrink:0;">
+            <div>
+              <div class="small fw-semibold" id="link_preview_title"></div>
+              <div class="small text-muted" id="link_preview_type"></div>
+            </div>
+          </div>
+          <div id="link_image_error" class="d-none mt-2 small text-danger"></div>
+        </div>
+
+        <!-- Target Audience -->
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Target Audience</label>
+          <select class="form-select" id="audience_select" onchange="onAudienceChange()">
+            <option value="">All Users</option>
+          </select>
+          <div class="mt-2 small text-muted">
+            <a href="{{ url_for('notification_groups_page') }}" target="_blank">Manage groups</a>
+          </div>
+          <div id="audience_info" class="d-none mt-2 small p-2 rounded bg-light border text-muted"></div>
+        </div>
+
+        <!-- Notification Preview -->
+        <div class="mb-4 p-3 rounded border bg-white" id="notif_preview_wrap">
+          <p class="text-muted small mb-2 fw-semibold text-uppercase" style="font-size:.7rem;letter-spacing:.05em">Preview</p>
+          <div class="d-flex gap-3 align-items-start">
+            <div style="width:36px;height:36px;background:#e63946;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.8rem;">T</div>
+            <div>
+              <div class="fw-semibold" id="preview_title" style="font-size:.92rem;">Your notification title</div>
+              <div class="text-muted" id="preview_body" style="font-size:.82rem;">Your message will appear here</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-grid">
+          <button type="button" class="btn btn-danger btn-lg" id="send-btn" onclick="confirmSend()">
+            Send to All Users
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let _groups = [];
+
+document.addEventListener('DOMContentLoaded', loadGroups);
+
+async function loadGroups() {
+  try {
+    const res = await fetch('/api/notification-groups');
+    _groups = await res.json();
+    const sel = document.getElementById('audience_select');
+    _groups.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g.id;
+      opt.textContent = g.name;
+      sel.appendChild(opt);
+    });
+  } catch(e) { /* non-fatal */ }
+}
+
+function onAudienceChange() {
+  const sel = document.getElementById('audience_select');
+  const groupId = sel.value;
+  const infoEl = document.getElementById('audience_info');
+  const sendBtn = document.getElementById('send-btn');
+
+  document.getElementById('group_id_input').value = groupId;
+
+  if (!groupId) {
+    sendBtn.textContent = 'Send to All Users';
+    infoEl.classList.add('d-none');
+    return;
+  }
+
+  const group = _groups.find(g => g.id === groupId);
+  if (group) {
+    sendBtn.textContent = `Send to "${group.name}"`;
+    const count = (group.uids || []).length;
+    infoEl.textContent = `${count} Firebase UID${count !== 1 ? 's' : ''}`;
+    infoEl.classList.remove('d-none');
+  }
+}
+
+function updateCount(el, countId, max) {
+  document.getElementById(countId).textContent = el.value.length;
+}
+
+function updatePreview() {
+  const title = document.getElementById('notif_title').value || 'Your notification title';
+  const body = document.getElementById('notif_body').value || 'Your message will appear here';
+  document.getElementById('preview_title').textContent = title;
+  document.getElementById('preview_body').textContent = body;
+}
+
+document.getElementById('notif_body').addEventListener('input', updatePreview);
+
+let _deepLinkTimer;
+function onDeepLinkInput() {
+  clearTimeout(_deepLinkTimer);
+  _deepLinkTimer = setTimeout(fetchLinkPreview, 400);
+}
+
+async function fetchLinkPreview() {
+  const val = document.getElementById('deep_link_input').value.trim();
+  const previewEl = document.getElementById('link_image_preview');
+  const errorEl = document.getElementById('link_image_error');
+
+  previewEl.classList.add('d-none');
+  errorEl.classList.add('d-none');
+
+  if (!val) return;
+
+  let url;
+  let typeLabel;
+  const articleMatch = val.match(/[?&]articleId=([^&]+)/);
+  const collectionMatch = val.match(/[?&]collectionId=([^&]+)/);
+
+  if (articleMatch) {
+    url = `/api/articles/${encodeURIComponent(articleMatch[1])}/preview`;
+    typeLabel = 'Article';
+  } else if (collectionMatch) {
+    url = `/api/collections/${encodeURIComponent(collectionMatch[1])}/preview`;
+    typeLabel = 'Collection';
+  } else {
+    return;
+  }
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!res.ok) {
+      errorEl.textContent = data.error || 'Not found';
+      errorEl.classList.remove('d-none');
+      return;
+    }
+    document.getElementById('link_preview_title').textContent = data.title || '—';
+    document.getElementById('link_preview_type').textContent = typeLabel;
+    const imgEl = document.getElementById('link_preview_img');
+    if (data.image_url) {
+      imgEl.src = data.image_url;
+      imgEl.style.display = '';
+    } else {
+      imgEl.style.display = 'none';
+    }
+    previewEl.classList.remove('d-none');
+  } catch (e) {
+    errorEl.textContent = 'Failed to load preview';
+    errorEl.classList.remove('d-none');
+  }
+}
+
+function confirmSend() {
+  const title = document.getElementById('notif_title').value.trim();
+  const body = document.getElementById('notif_body').value.trim();
+  if (!title || !body) {
+    document.getElementById('notif-form').reportValidity();
+    return;
+  }
+  const link = document.getElementById('deep_link_input').value.trim();
+  const groupId = document.getElementById('group_id_input').value;
+  const group = groupId ? _groups.find(g => g.id === groupId) : null;
+
+  const audienceNote = group ? `Target: "${group.name}"` : 'Target: All active users';
+  const linkNote = link ? `\nDeep link: ${link}` : '';
+
+  if (confirm(`Send this notification?\n\n"${title}"\n${body}\n\n${audienceNote}${linkNote}`)) {
+    document.getElementById('notif-form').submit();
+  }
+}
+</script>
+</body>
+</html>

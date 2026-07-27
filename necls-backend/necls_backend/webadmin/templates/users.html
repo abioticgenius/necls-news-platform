@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Manage Users</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-3">
+<h1>Manage Users</h1>
+<a href="{{ url_for('index') }}" class="btn btn-secondary mb-3">Back</a>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+<table class="table table-striped">
+  <tr><th>Username</th><th>Role / Password</th><th>Actions</th></tr>
+  {% for u in users %}
+  <tr>
+    <td>{{ u.username }}</td>
+    <td>
+      <form method="post" action="{{ url_for('manage_users') }}">
+        <input type="hidden" name="user_id" value="{{ u.id }}">
+        <select name="role" class="form-select form-select-sm">
+          <option value="reviewer" {% if u.role=='reviewer' %}selected{% endif %}>Reviewer</option>
+          <option value="editor" {% if u.role=='editor' %}selected{% endif %}>Editor</option>
+          <option value="admin" {% if u.role=='admin' %}selected{% endif %}>Admin</option>
+        </select>
+        <input type="password" name="new_password" class="form-control form-control-sm mt-1" placeholder="New Password">
+        <button type="submit" class="btn btn-sm btn-primary mt-1">Update</button>
+      </form>
+    </td>
+    <td>
+      {% if u.id != current_user.id %}
+      <form method="post" action="{{ url_for('delete_user') }}" class="d-inline" onsubmit="return confirm('Delete user {{ u.username }}?');">
+        <input type="hidden" name="user_id" value="{{ u.id }}">
+        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+</body>
+</html>
