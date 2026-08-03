@@ -12,7 +12,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ./infrastructure/postgres/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+      # seed.sql runs AFTER services start (tables created by ORM on startup)
+      # To seed: docker exec thinko-postgres psql -U admin -d app_db -f /tmp/seed.sql
     ports:
       - "5432:5432"
     healthcheck:
@@ -50,8 +51,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-demo-key}
       OPENAI_ASSISTANT_MODEL: gpt-5-nano
 
-      # Firebase (demo keys - replace with real ones for production)
-      FIREBASE_SERVICE_ACCOUNT: '{"type":"service_account","project_id":"demo","private_key_id":"demo","private_key":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn/M+DlYaAWyA6V...REDACTED...FOR DEMO\n-----END RSA PRIVATE KEY-----","client_email":"demo@demo.iam.gserviceaccount.com"}'
+      # Firebase: unset = DEMO MODE (auth bypassed, mock user injected automatically)
+      # To enable real auth: set FIREBASE_SERVICE_ACCOUNT='{...your service account json...}'
 
       # AWS (demo keys - replace for production)
       AWS_ACCESS_KEY_ID: demo-access-key
@@ -66,12 +67,8 @@ services:
 
     ports:
       - "7090:7090"
-    volumes:
-      - ./core-service/src:/usr/src/app/src
-      - ./core-service/dist:/usr/src/app/dist
     networks:
       - thinko-network
-    command: npm run dev
 
   # NECLS Backend - Python Pipeline
   necls-pipeline:

@@ -24,6 +24,12 @@ export async function sendMulticast(
     const batch = tokenEntries.slice(i, i + FCM_BATCH_SIZE);
     const tokens = batch.map(e => e.token);
 
+    if (!firebaseMessaging) {
+      console.warn('[FCM] Firebase not initialized — skipping notification batch (demo mode)');
+      failed += batch.length;
+      continue;
+    }
+
     let response;
     try {
       response = await firebaseMessaging.sendEachForMulticast({

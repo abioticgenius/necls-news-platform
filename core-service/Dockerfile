@@ -16,9 +16,9 @@ COPY . .
 
 # Build TypeScript (requires devDependencies)
 # We temporarily install dev deps ONLY to build, then remove them
-RUN npm install --only=dev \
+RUN npm install --include=dev \
     && npm run build \
-    && npm prune --production
+    && npm prune --omit=dev
 
 # NOTE: .env file should NOT be copied into the image for security reasons
 # Instead, provide environment variables at runtime via:

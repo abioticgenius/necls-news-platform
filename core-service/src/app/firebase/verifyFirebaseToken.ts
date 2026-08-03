@@ -1,8 +1,18 @@
 // verifyFirebaseToken.js
 import { Request, Response } from "express";
-import { firebaseAuth } from "./firebase";
+import { firebaseAuth, firebaseInitialized } from "./firebase";
 
 export async function verifyFirebaseToken(req: Request, res: Response, next: any) {
+  // DEMO MODE: Firebase not configured, attach a mock user and continue
+  if (!firebaseInitialized || !firebaseAuth) {
+    req.user = {
+      uid: "demo-user-001",
+      email: "demo@example.com",
+      name: "Demo User",
+    } as any;
+    return next();
+  }
+
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
