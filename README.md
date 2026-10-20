@@ -1,4 +1,4 @@
-# ThinkO News Platform — Full-Stack News AI System
+# News Platform — Full-Stack News AI System
 
 A production-grade enterprise platform for automated news aggregation, intelligent story clustering, AI-powered enrichment, and customer-facing content delivery. This system demonstrates a complete end-to-end AI pipeline with semantic search, multi-language support, and real-time user engagement tracking.
 
